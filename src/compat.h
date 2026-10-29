@@ -48,6 +48,8 @@ static void net_start(void) { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); }
 static int make_dir(const char *p) { return _mkdir(p); }
 static void sleep_ms(int ms) { Sleep((DWORD)ms); }
 static long long clock_ms(void) { return (long long)GetTickCount64(); }
+static void lower_priority(void) { SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS); }
+static long long cpu_ms(void) { FILETIME c, e, k, u; ULARGE_INTEGER a, b; GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u); a.LowPart = k.dwLowDateTime; a.HighPart = k.dwHighDateTime; b.LowPart = u.dwLowDateTime; b.HighPart = u.dwHighDateTime; return (long long)((a.QuadPart + b.QuadPart) / 10000); }
 
 // folders: opendir / readdir / closedir (MinGW's dirent.h, or this one for cl)
 #if defined(__MINGW32__)
@@ -174,6 +176,9 @@ static void net_start(void) { signal(SIGPIPE, SIG_IGN); }
 static int make_dir(const char *p) { return mkdir(p, 0777); }
 static void sleep_ms(int ms) { usleep((useconds_t)ms * 1000); }
 static long long clock_ms(void) { struct timeval t; gettimeofday(&t, NULL); return (long long)t.tv_sec * 1000 + t.tv_usec / 1000; }
+#include <sys/resource.h>
+static void lower_priority(void) { if (setpriority(PRIO_PROCESS, 0, 10) != 0) { } }
+static long long cpu_ms(void) { struct rusage r; getrusage(RUSAGE_SELF, &r); return (long long)(r.ru_utime.tv_sec + r.ru_stime.tv_sec) * 1000 + (r.ru_utime.tv_usec + r.ru_stime.tv_usec) / 1000; }
 
 static struct termios tty_old;
 static void tty_raw_on(void)

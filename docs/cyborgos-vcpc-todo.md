@@ -1,6 +1,11 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 --cpu P (5-95): a node keeps to P% of one core - after each stretch of work (50 ms at most)
+  it sleeps as the share says, measured in CPU time (getrusage / GetProcessTimes) - and runs at below-
+  normal priority (nice 10 / BELOW_NORMAL_PRIORITY_CLASS). Measured, CRUNCH and TICKER running and
+  SPEED: all of a core - SPEED 62.8 times a CPC; --cpu 95: 57.5; 50: 26.8 (a third of the wall time);
+  25: 14.5. For the gateway: --cpu for the whole PC, a node a core, each node its share.
 - 2026-10-29 FILE 100 (the kernel opening a program) takes a name with a folder - C/PS.CYB: the kernel now
   looks in C/ on the boot drive after the slot's drive (cyborg-os: all the commands in C/). With only
   --sys CYBORGOS (no CYBORGOS/C), PAUSE, SPEED, IPCONFIG are found there.
@@ -42,6 +47,8 @@
   the one asked for.
 
 ## next
+- the gateway: one port (or the Pi's link), nodes as LUNs behind it; --cpu P for the whole PC - nodes =
+  cores x P / 100 rounded up, each given its share (--cpu to each); started, stopped, restarted
 - TOP's key: Control + ESC is Windows' Start menu (most emulators lose it too - WinAPE hooks it); a
   second TOP key in CyborgOS, and the kernel's hint for host 4 (Control + T then 1-9 / T)
 - SEND / SLOTD: the network ops' listening (bind, listen, accept) as the M4 gets them

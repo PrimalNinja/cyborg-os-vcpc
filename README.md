@@ -54,6 +54,7 @@ Windows 10 or later (its ANSI codes); paths may use \ or /.
 | `--tty` | the terminal is its screen and keyboard: Control + T, then 1-9 / 0 a slot to the front, T TOP, Q quit |
 | `--script "a;b"` | commands typed in turn, each given `--wait` ms (1500); `^2` slot 2 to the front, `^T` TOP, `?2` slot 2's last line printed then, `~3000` 3 seconds more typing nothing |
 | `--show 1,2` | with `--script`: the slots whose screens are printed at the end (`all`, `front`) |
+| `--cpu P` | take at most P% of one core (5-95), at below-normal priority: the PC's own work comes first. Without it: all of one core (an idle node sleeps either way) |
 | `-v` | each slot's BDOS calls on stderr; `-vv` the kernel's requests to C0 too |
 
 The drives: **A:** is `DATA:` - the node's own folder, with CyborgOS's set seen through it (read

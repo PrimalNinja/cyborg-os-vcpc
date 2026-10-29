@@ -74,6 +74,7 @@ static int front = 1, hdr = 'A', hfile = 0, quit_now = 0, idle = 0, worked = 0;
 static int keys[256], nkeys = 0, hots[32], nhots = 0;
 static long long t0;
 static int verbose = 0;
+static int cpu_pct = 100;                // --cpu: the share of one core this node may take (5-95; 100: all of it)
 
 static uint8_t rb_cb(void *u, uint16_t a) { return ((uint8_t *)u)[a]; }
 static void wb_cb(void *u, uint16_t a, uint8_t v) { ((uint8_t *)u)[a] = v; }
@@ -1316,13 +1317,24 @@ static void type_key(int k) { if (nkeys < 256) { keys[nkeys++] = k & 255; } idle
 static void type_str(const char *s) { for (; *s; s++) { type_key((unsigned char)*s); } }
 static void hot(int n) { if (nhots < 32) { hots[nhots++] = n; } idle = 0; }
 
+// run_for(ms): the machine run for ms - with --cpu, kept to its share of a core: after each stretch
+// (50 ms of work at most) it sleeps as long as the share says (at 25%: 3 ms asleep for each 1 ms of work)
+static void throttle(long long busy_ms)
+{
+	if (cpu_pct >= 100 || busy_ms <= 0) { return; }
+	sleep_ms((int)(busy_ms * (100 - cpu_pct) / cpu_pct));
+}
 static void run_for(int msec)
 {
 	long end = ms_now() + msec;
 	while (!quit_now && ms_now() < end)
 	{
+		long long c0 = cpu_ms();
+		int more;
 		net_poll();
-		if (step(20) && idle) { sleep_ms(2); }
+		more = step(cpu_pct >= 100 ? 20 : 50);
+		throttle(cpu_ms() - c0);
+		if (more && idle) { sleep_ms(2); }
 	}
 }
 
@@ -1372,8 +1384,13 @@ static void tty_main(void)
 			if (c == 8) { c = 127; }
 			type_key(c);
 		}
-		net_poll();
-		if (step(20) && idle) { sleep_ms(2); }
+		{
+			long long c0 = cpu_ms(); int more;
+			net_poll();
+			more = step(cpu_pct >= 100 ? 20 : 50);
+			throttle(cpu_ms() - c0);
+			if (more && idle) { sleep_ms(2); }
+		}
 		if (dirty && ms_now() - last > 33) { tty_draw(); last = ms_now(); }
 	}
 }
@@ -1388,7 +1405,8 @@ static void usage(void)
 		"  --slots n     slots (1-20, 10)\n"
 		"  --tty         the terminal is its screen and keyboard (Control + T, then 1-9 / 0 / T / Q)\n"
 		"  --script S    commands typed in turn (; between), each given --wait ms (1500), then the screens\n"
-		"  --show LIST   with --script: the slots whose screens are printed (1,2 ...; 0 TOP; all: all)\n");
+		"  --show LIST   with --script: the slots whose screens are printed (1,2 ...; 0 TOP; all: all)\n"
+		"  --cpu P       take at most P%% of one core (5-95), at below-normal priority (no --cpu: all of one core)\n");
 }
 
 int main(int argc, char **argv)
@@ -1407,11 +1425,13 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--wait") && i + 1 < argc) { wait = atoi(argv[++i]); }
 		else if (!strcmp(argv[i], "--show") && i + 1 < argc) { show = argv[++i]; }
 		else if (!strcmp(argv[i], "--kernel") && i + 1 < argc) { kernel = argv[++i]; }
+		else if (!strcmp(argv[i], "--cpu") && i + 1 < argc) { cpu_pct = atoi(argv[++i]); if (cpu_pct < 5) { cpu_pct = 5; } if (cpu_pct > 95) { cpu_pct = 95; } }
 		else if (!strcmp(argv[i], "-v")) { verbose = 1; }
 		else if (!strcmp(argv[i], "-vv")) { verbose = 2; }
 		else { usage(); return 1; }
 	}
 	if (ns < 1) { ns = 1; } if (ns > MAXS) { ns = MAXS; }
+	if (cpu_pct < 100) { lower_priority(); }           // (a share asked for: the PC's own work first, too)
 	if (!nsys) { usage(); return 1; }
 	for (i = 0; i < NBANKS; i++) { banks[i].m = calloc(1, 65536); }
 	for (i = 0; i < NH; i++) { hs[i].used = 0; }
