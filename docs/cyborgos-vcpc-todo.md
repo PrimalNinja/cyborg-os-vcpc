@@ -1,6 +1,11 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 IPCONFIG: the host's own network - its first IPv4 interface that is up: the address, the
+  netmask, the gateway, two DNS servers, the MAC, its name in the message ("vCPC: the host's eth0").
+  Linux: getifaddrs, /proc/net/route, /etc/resolv.conf, /sys/class/net; Windows: GetAdaptersAddresses
+  (build.bat links iphlpapi.lib). It said 127.0.0.1 before. YING's keys page and back: fine here - it
+  was the Windows 7 second stop. vcpctest: ipconfig (9 checks). Scripts: #n types key n alone.
 - 2026-10-29 Windows: the slots stopped after about 7 seconds (RATBOX found it: its 9 second wait for
   RAT never ended) - superzazu's cycle count is an unsigned long, 32 bits on Windows: it wrapped at
   4G cycles and a slice's end, worked out from it, then came before its start. Only differences of

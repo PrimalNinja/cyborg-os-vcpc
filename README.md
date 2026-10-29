@@ -33,8 +33,8 @@ CyborgOS itself is its own project (cyborg-os); this one needs its built set (it
     make                   (or: cc -O2 -Isrc/z80 -o build/vcpc src/vcpc.c src/z80/z80.c)
 
 One C file and the Z80 core, nothing else: Linux, the Pi, macOS. On Windows, `src\build.bat`
-(Visual C++: `cl /O2 /MT /Iz80 vcpc.c z80\z80.c /link ws2_32.lib`), or MinGW's gcc
-(`gcc -O2 -Isrc/z80 -o build/vcpc.exe src/vcpc.c src/z80/z80.c -lws2_32`). The console needs
+(Visual C++: `cl /O2 /MT /Iz80 vcpc.c z80\z80.c /link ws2_32.lib iphlpapi.lib`), or MinGW's gcc
+(`gcc -O2 -Isrc/z80 -o build/vcpc.exe src/vcpc.c src/z80/z80.c -lws2_32 -liphlpapi`). The console needs
 Windows 10 or later (its ANSI codes); paths may use \ or /.
 
 ## Testing

@@ -642,9 +642,20 @@ static int svc_info(int t, int p)
 		case 5: return HOST;
 		case 6: return bd;
 		case 7: n = 0; for (i = 1; i <= ns; i++) { if (i != t && st[i] >= 2 && dv[i] == m[(p + 2) & 0xFFFF]) { n++; } } return n;
-		case 8: { int a = W(m, p + 2); for (i = 0; i < 64; i++) { m[(a + i) & 0xFFFF] = 0; } m[a & 0xFFFF] = net_on ? 2 : 0; m[(a + 1) & 0xFFFF] = 255;
-			m[(a + 2) & 0xFFFF] = 127; m[(a + 5) & 0xFFFF] = 1; m[(a + 6) & 0xFFFF] = 255;
-			const char *msg = "vCPC: the host's network"; for (i = 0; msg[i]; i++) { m[(a + 28 + i) & 0xFFFF] = (uint8_t)msg[i]; } return net_on ? 2 : 0; }
+		case 8:                                          // IPCONFIG's 64 bytes: 0 off, 1 not connected, 2 connected; +1 the
+		{                                                // signal (255 none), +2 IP, +6 netmask, +10 gateway, +14 / +18 DNS,
+			int a = W(m, p + 2), ok;                     // +22 the MAC, +28 a message - the host's own network
+			uint8_t ip[4] = { 0 }, mk[4] = { 0 }, gw[4] = { 0 }, d1[4] = { 0 }, d2[4] = { 0 }, mac[6] = { 0 }; char nm[96] = "", msg[40];
+			for (i = 0; i < 64; i++) { m[(a + i) & 0xFFFF] = 0; }
+			if (!net_on) { return 0; }
+			ok = host_net(ip, mk, gw, d1, d2, mac, nm, sizeof nm);
+			m[a & 0xFFFF] = (uint8_t)(ok ? 2 : 1); m[(a + 1) & 0xFFFF] = 255;
+			for (i = 0; i < 4; i++) { m[(a + 2 + i) & 0xFFFF] = ip[i]; m[(a + 6 + i) & 0xFFFF] = mk[i]; m[(a + 10 + i) & 0xFFFF] = gw[i]; m[(a + 14 + i) & 0xFFFF] = d1[i]; m[(a + 18 + i) & 0xFFFF] = d2[i]; }
+			for (i = 0; i < 6; i++) { m[(a + 22 + i) & 0xFFFF] = mac[i]; }
+			snprintf(msg, sizeof msg, "vCPC: the host's %.20s", nm[0] ? nm : "network");
+			for (i = 0; msg[i] && i < 30; i++) { m[(a + 28 + i) & 0xFFFF] = (uint8_t)msg[i]; }
+			return ok ? 2 : 1;
+		}
 		case 9: return 0;
 		case 10: { int a = W(m, p + 2); n = 0; for (i = 0; i < 64; i++) { m[(a + i) & 0xFFFF] = 0; }
 			for (i = 0; i < NT_N; i++) { if (!socks[i].used) { continue; } n++; int o = a + i * 8; m[o & 0xFFFF] = (uint8_t)socks[i].slot; m[(o + 1) & 0xFFFF] = (uint8_t)socks[i].state;
@@ -1428,7 +1439,8 @@ int main(int argc, char **argv)
 			while (*p && *p != ';' && n < 250) { cmd[n++] = *p++; }
 			cmd[n] = 0; if (*p == ';') { p++; }
 			if (cmd[0] == '^' && cmd[1]) { hot(toupper((unsigned char)cmd[1]) == 'T' ? 99 : atoi(cmd + 1)); }   // ^2: slot 2 to the front, ^T: TOP
-			else if (cmd[0] == '~' && cmd[1]) { run_for(atoi(cmd + 1)); continue; }                         // ~3000: 3 seconds more, typing nothing
+			else if (cmd[0] == '~' && cmd[1]) { run_for(atoi(cmd + 1)); continue; }
+			else if (cmd[0] == '#' && cmd[1]) { type_key(atoi(cmd + 1)); run_for(wait); continue; }        // #9: key 9 (Tab) typed, alone                         // ~3000: 3 seconds more, typing nothing
 			else if (cmd[0] == '?' && cmd[1])                                                              // ?2: slot 2's last line, now
 			{
 				char buf[8192], *nl; con_text(atoi(cmd + 1), buf, sizeof buf); nl = strrchr(buf, '\n');

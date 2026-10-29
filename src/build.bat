@@ -5,7 +5,7 @@ rem /SUBSYSTEM:WINDOWS - its screen and keyboard are the console it runs in
 cd /d "%~dp0"
 where cl >nul 2>nul || call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 if not exist ..\build mkdir ..\build
-cl /nologo /O2 /MT /Iz80 vcpc.c z80\z80.c /Fo..\build\ /Fe..\build\vcpc.exe /link ws2_32.lib
+cl /nologo /O2 /MT /Iz80 vcpc.c z80\z80.c /Fo..\build\ /Fe..\build\vcpc.exe /link ws2_32.lib iphlpapi.lib
 if errorlevel 1 exit /b 1
 del ..\build\*.obj 2>nul
 echo built ..\build\vcpc.exe
