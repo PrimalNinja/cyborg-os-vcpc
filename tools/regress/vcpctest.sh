@@ -23,6 +23,19 @@ if [ "$a" = "$b" ] && [ "$b" != "$c" ]; then pass=$((pass+1)); echo "ok   pause 
 o=$(run dump "run 2 ticker;dump 2 t.dmp;revive 3 t.dmp;?3;ps;?3;unpause 3;?3")
 a=$(echo "$o" | grep -- "--- slot 3" | sed -n 1p); b=$(echo "$o" | grep -- "--- slot 3" | sed -n 2p); c=$(echo "$o" | grep -- "--- slot 3" | sed -n 3p)
 if [ "$a" = "$b" ] && [ "$b" != "$c" ] && echo "$a" | grep -q tick; then pass=$((pass+1)); echo "ok   dump (revived at ${a#*: }, on to ${c#*: })"; else fail=$((fail+1)); echo "FAIL dump: $a / $b / $c"; fi
+# two nodes on this machine: B runs SLOTD (listening only while it runs), A sends to it
+pair() { rm -rf "$D/pA" "$D/pB"; (build/vcpc --sys "$S" --sys "$S/C" --data "$D/pB" --slots 4 --wait 1000 --script "$1" --show 1,2,3 > "$D/pB.txt" 2>&1 &); sleep 2; build/vcpc --sys "$S" --sys "$S/C" --data "$D/pA" --slots 4 --wait 2500 --script "$2" --show 1,2 > "$D/pA.txt" 2>&1; sleep $3; }
+pair "slotd;~9000" "run 2 ticker;rmove 2 127.0.0.1;ps" 8
+o="$(cat "$D/pA.txt") $(sed -n '/=== slot 2/,/=== slot 3/p' "$D/pB.txt")"
+if echo "$o" | grep -q "moved to 127.0.0.1, slot 2" && grep -q "^  2   command line" "$D/pA.txt" && sed -n '/=== slot 2/,/=== slot 3/p' "$D/pB.txt" | grep -q tick; then pass=$((pass+1)); echo "ok   rmove (TICKER moved: gone here, running there)"; else fail=$((fail+1)); echo "FAIL rmove"; fi
+pair "slotd 3 secret;~9000" "run 2 ticker;rcopy 2 127.0.0.1 secret" 8
+if grep -q "copied to 127.0.0.1, slot 3" "$D/pA.txt" && sed -n '/=== slot 3/,$p' "$D/pB.txt" | grep -q tick; then pass=$((pass+1)); echo "ok   rcopy (a copy running there, the word given)"; else fail=$((fail+1)); echo "FAIL rcopy"; fi
+pair "slotd 3 secret;~6000" "run 2 ticker;rcopy 2 127.0.0.1 wrong" 6
+check rcopy_word "not sent: the word is wrong" "$(cat "$D/pA.txt")"
+pair "slotd 2,3;~8000" "rcopy ticker.cyb 127.0.0.1 -o 3" 7
+check rcopy_prog "copied to 127.0.0.1 - running in slot 3" "$(cat "$D/pA.txt")"
+pair "slotd;~2000;q;~3000" "~4000;run 2 ticker;rmove 2 127.0.0.1" 4
+check slotd_off "no SLOTD at 127.0.0.1:6464" "$(cat "$D/pA.txt")"
 rm -rf "$D"
 [ $fail -eq 0 ] && echo "$pass passed - ALL PASS" || echo "$fail failed, $pass passed"
 [ $fail -eq 0 ]

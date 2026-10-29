@@ -494,8 +494,8 @@ static void net_poll(void)
 					memcpy(s->rx + s->nrx, b, n); s->nrx += (int)n; idle = 0;
 					continue;
 				}
-				if (n == 0) { s->state = 3; idle = 0; }
-				else if (!SOCK_WOULDBLOCK(sock_errno())) { s->state = 3; idle = 0; }
+				if (n == 0) { s->state = 3; idle = 0; if (verbose) { fprintf(stderr, "[net] socket %d closed by the other end (%d bytes waiting)\n", i, s->nrx); } }
+				else if (!SOCK_WOULDBLOCK(sock_errno())) { s->state = 3; idle = 0; if (verbose) { fprintf(stderr, "[net] socket %d broke (error %d, %d bytes waiting)\n", i, sock_errno(), s->nrx); } }
 				break;
 			}
 		}
@@ -583,6 +583,44 @@ static int net_op(int t, int p, int op)
 	}
 	if (op == 27) { sock_close(k); return 0; }
 	return 255;
+}
+
+// 35 LISTEN Word(2) the port: a socket listening there (state 6) - 255 none; 36 ACCEPT Byte(1) a
+// listening socket: a connection that came to it (a socket of its own, connected), 254 none yet,
+// 255 not a listening socket. Nothing listens unless a program asks (SLOTD)
+static int net_listen(int t, int p, int op)
+{
+	uint8_t *m = M(t); int i, k;
+	if (!net_on) { return 255; }
+	if (op == 35)
+	{
+		struct sockaddr_in a; int one = 1, fd;
+		for (i = 0; i < NT_N && socks[i].used; i++) { }
+		if (i >= NT_N) { return 255; }
+		fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+		if (fd < 0) { return 255; }
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+		memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons((uint16_t)W(m, p + 2)); a.sin_addr.s_addr = htonl(INADDR_ANY);
+		if (bind(fd, (struct sockaddr *)&a, sizeof a) != 0 || listen(fd, 4) != 0) { sock_close_fd(fd); return 255; }
+		sock_nonblock(fd);
+		memset(&socks[i], 0, sizeof(Sock)); socks[i].used = 1; socks[i].slot = t; socks[i].fd = fd; socks[i].state = 6;
+		return i;
+	}
+	k = m[(p + 1) & 0xFFFF];
+	if (k >= NT_N || !socks[k].used || socks[k].slot != t || socks[k].state != 6) { return 255; }
+	{
+		struct sockaddr_in a; socklen_t l = sizeof a; int one = 1, fd;
+		fd = (int)accept(socks[k].fd, (struct sockaddr *)&a, &l);
+		if (fd < 0) { return 254; }
+		for (i = 0; i < NT_N && socks[i].used; i++) { }
+		if (i >= NT_N) { sock_close_fd(fd); return 254; }
+		sock_nonblock(fd);
+		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+		memset(&socks[i], 0, sizeof(Sock)); socks[i].used = 1; socks[i].slot = t; socks[i].fd = fd; socks[i].state = 0;
+		memcpy(socks[i].ip, &a.sin_addr, 4);
+		idle = 0;
+		return i;
+	}
 }
 
 static int port_find(const char *nm) { for (int i = 0; i < PT_N; i++) { if (ports[i].used && strcmp(ports[i].name, nm) == 0) { return i; } } return -1; }
@@ -719,6 +757,7 @@ static int svc_call(int t, int p)
 	if (op == 20) { return svc_info(t, p); }
 	if (op >= 21 && op <= 27) { return net_op(t, p, op); }
 	if (op >= 28 && op <= 33) { return port_op(t, p, op); }
+	if (op == 35 || op == 36) { return net_listen(t, p, op); }
 	if (op == 34)
 	{
 		int k = m[(p + 1) & 0xFFFF];
@@ -1069,7 +1108,7 @@ static Res bdos(int t, z80 *z)
 		case 130: return c0(t, 255, 2);
 		case 131:
 			k = m[de & 0xFFFF];
-			if (k == 10 || k == 11 || k >= 13) { i = svc_call(t, de); return c0(t, i, (i == 1 && k >= 30) ? 3 : 0); }
+			if (k == 10 || k == 11 || k >= 13) { i = svc_call(t, de); return c0(t, i, ((i == 1 && k >= 30 && k <= 33) || (i == 254 && k == 36)) ? 3 : 0); }   // (a port's not yet, no connection yet: a tick's sleep)
 			if (k == 12) { return c0(t, storeSize(t, W(m, de + 2)), 0); }
 			return kern(131, de, 0);
 	}

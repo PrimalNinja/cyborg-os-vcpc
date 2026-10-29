@@ -1,6 +1,11 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 BDOS 131 ops 35 LISTEN (a socket listening on a port - SO_REUSEADDR, any address) and 36
+  ACCEPT (a connection that came: a socket of its own, 254 none yet - a tick's sleep, as a port's not
+  yet: an idle SLOTD costs next to nothing). Nothing listens unless a program asks: cyborg-os's SLOTD,
+  only while it runs. With RMOVE / RCOPY: two nodes on one PC move and copy running slots and send
+  programs (vcpctest: 15). -v also says when a socket was closed by the other end or broke.
 - 2026-10-29 GUI runs here (cyborg-os: GUI refused any host but the CPC; its CPC head draws nothing on
   host 4 - no gate array, no #C000 screen - the desktop goes only to RGUI, R=). GUIDEMO opens its
   window on it through the port; the mouse found: KEYS (MP2, AMX, SF ports read 255 here). R= itself
@@ -56,7 +61,6 @@
   cores x P / 100 rounded up, each given its share (--cpu to each); started, stopped, restarted
 - TOP's key: Control + ESC is Windows' Start menu (most emulators lose it too - WinAPE hooks it); a
   second TOP key in CyborgOS, and the kernel's hint for host 4 (Control + T then 1-9 / T)
-- SEND / SLOTD: the network ops' listening (bind, listen, accept) as the M4 gets them
 - RAMDISC: its own Z80 driver run in a page, as C0 does
 - the link (the Pi protocol's frames: a console channel a slot, files in and out, port calls)
 - a Dockerfile, the PHP stub that starts nodes

@@ -26,7 +26,7 @@ CyborgOS itself is its own project (cyborg-os); this one needs its built set (it
 | `src/z80/` | superzazu's Z80 core (MIT, its LICENSE): unchanged but for two flag accessors |
 | `build/vcpc` | the built binary (Linux x86-64 here; `make` builds it for the machine it runs on) |
 | `docs/cyborgos-vcpc-todo.md` | what is done and what is next |
-| `tools/regress/vcpctest.sh` | the checks: PS, DIR, HELP, RAT / MODEL / RATS through ports, PAUSE / UNPAUSE, DUMP / REVIVE |
+| `tools/regress/vcpctest.sh` | the checks: PS, DIR, HELP, MEM, IPCONFIG, GUI, SPEED, RAT / MODEL / RATS through ports, PAUSE / UNPAUSE, DUMP / REVIVE, and two nodes: RMOVE / RCOPY to SLOTD |
 
 ## Building
 
@@ -60,6 +60,12 @@ Windows 10 or later (its ANSI codes); paths may use \ or /.
 The drives: **A:** is `DATA:` - the node's own folder, with CyborgOS's set seen through it (read
 only: writing a set's file makes the node's own copy), so A: looks as the CPC's CYBORGOS folder
 does. **Z:** is `SYS:`, the set. CD, CV, MKDIR, DIR's folders work as with UniDOS.
+
+## Moving slots between nodes
+
+Start `SLOTD` in a slot of one node (it listens on port 6464 only while it runs), then on another
+`RMOVE 2 address` or `RCOPY 2 address`: slot 2's program goes on there from where it was (RMOVE
+closes it here). Two nodes on one PC: `127.0.0.1` - give the second its own `--data` folder.
 
 ## How a slot is kept
 
