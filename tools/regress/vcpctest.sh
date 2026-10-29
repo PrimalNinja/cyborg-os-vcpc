@@ -13,6 +13,7 @@ o=$(run ps "ps"); check ps "2   -" "$o"
 o=$(run dir "dir z:"); check dir "KERNEL.CYB" "$o"
 o=$(run help "help pause"); check help "UNPAUSE slot" "$o"
 o=$(run ipconfig "ipconfig"); check ipconfig "^IP address   [1-9]" "$o"   # (the host's own address, not 127.0.0.1 or 0.0.0.0)
+o=$(build/vcpc --sys "$S" --sys "$S/C" --data "$D/gui" --slots 4 --wait 2500 --script "run 2 gui;run 3 guidemo" --show 3); check gui "GUIDEMO: window 0 on GUI" "$o"   # (GUI headless, GUIDEMO's window through its port)
 o=$(run mem "run 2 ticker;mem"); check mem "^BBBBBBBBBBBB---" "$o"   # (the kernel's bank and two slots': B, the rest free)
 o=$(build/vcpc --sys "$S" --sys "$S/C" --data "$D/speed" --slots 4 --wait 2500 --script "speed 1" --show 1); check speed "times a 4 MHz CPC" "$o"
 o=$(run rats "run 2 model ratmodel;run 3 rat;rats 3"); check rats "^1: [a-z]" "$o"   # (RATS shows a decision: the rat's choice from MODEL, through the ports)

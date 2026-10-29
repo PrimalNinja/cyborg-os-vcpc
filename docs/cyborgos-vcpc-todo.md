@@ -1,6 +1,11 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 GUI runs here (cyborg-os: GUI refused any host but the CPC; its CPC head draws nothing on
+  host 4 - no gate array, no #C000 screen - the desktop goes only to RGUI, R=). GUIDEMO opens its
+  window on it through the port; the mouse found: KEYS (MP2, AMX, SF ports read 255 here). R= itself
+  not tried here (no VDU server reachable). Reporting host 0 instead would put the kernel on its CPC
+  path (KRun, the gate array): not that. vcpctest: gui (10 checks).
 - 2026-10-29 --cpu P (5-95): a node keeps to P% of one core - after each stretch of work (50 ms at most)
   it sleeps as the share says, measured in CPU time (getrusage / GetProcessTimes) - and runs at below-
   normal priority (nice 10 / BELOW_NORMAL_PRIORITY_CLASS). Measured, CRUNCH and TICKER running and
