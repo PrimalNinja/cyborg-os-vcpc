@@ -1,6 +1,9 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 FILE 100 (the kernel opening a program) takes a name with a folder - C/PS.CYB: the kernel now
+  looks in C/ on the boot drive after the slot's drive (cyborg-os: all the commands in C/). With only
+  --sys CYBORGOS (no CYBORGOS/C), PAUSE, SPEED, IPCONFIG are found there.
 - 2026-10-29 IPCONFIG: the host's own network - its first IPv4 interface that is up: the address, the
   netmask, the gateway, two DNS servers, the MAC, its name in the message ("vCPC: the host's eth0").
   Linux: getifaddrs, /proc/net/route, /etc/resolv.conf, /sys/class/net; Windows: GetAdaptersAddresses

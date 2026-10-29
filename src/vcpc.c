@@ -1184,14 +1184,16 @@ static void serve(void)
 			int f = t, x = in[2], s = in[3], a = in[4]; const char *p = pathOf(hdr);
 			if (f == 100)
 			{
-				char nm[32], n11[12]; Entry e; int n = x < 30 ? x : 30, ok = 0;
+				char nm[80], n11[12], fp[400], *base; Entry e; int n = x < 70 ? x : 70, ok = 0;
 				for (i = 0; i < n; i++) { nm[i] = (char)toupper(K[KB + 32 + i]); } nm[n] = 0;
 				if (hfile) { h_close(hfile); hfile = 0; }
-				if (p && name83(nm, n11) && find(p, n11, &e)) { ok = 1; }
+				base = strrchr(nm, '/');                 // (a name with a folder - C/PS.CYB, the commands': that folder of the drive's path)
+				if (p && base) { *base = 0; snprintf(fp, sizeof fp, "%s%s/", p, nm); *base = '/'; p = fp; base++; } else { base = nm; }
+				if (p && name83(base, n11) && find(p, n11, &e)) { ok = 1; }
 				else if (p && n > 4 && strcmp(nm + n - 4, ".CYB") == 0)
 				{
 					strcpy(nm + n - 4, ".COM");
-					if (name83(nm, n11) && find(p, n11, &e)) { ok = 1; for (i = 0; i < n; i++) { K[KB + 32 + i] = (uint8_t)nm[i]; } }
+					if (name83(base, n11) && find(p, n11, &e)) { ok = 1; for (i = 0; i < n; i++) { K[KB + 32 + i] = (uint8_t)nm[i]; } }
 				}
 				kw[8] = 255;
 				if (ok && (hfile = h_open(e.host, 1, 0))) { kw[8] = 0; }
