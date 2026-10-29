@@ -93,6 +93,8 @@ static int ticks(void) { return (int)(ticks_all() & 0xFFFF); }
 // ESC l o d. Every byte also goes to the terminal when it is the slot in front (con_out)
 static uint8_t top_cells[80 * 25];      // the screen while TOP shows (SAY)
 static int dirty = 1;
+static char shown[64][161];             // the terminal's rows as last drawn (tty_draw)
+static int shown_rows = 0, shown_cols = 0, shown_valid = 0;
 
 static void con_clear(uint8_t *m, int from, int to) { if (to > from) { memset(m + PAGE + from, ' ', to - from); } }
 static void con_scroll_up(uint8_t *m, int W_, int H) { memmove(m + PAGE, m + PAGE + W_, W_ * (H - 1)); con_clear(m, W_ * (H - 1), W_ * H); }
@@ -1096,12 +1098,12 @@ static Res call(int t)
 static int run(int t, long max)
 {
 	z80 *z = &banks[t].z;
-	unsigned long end = z->cyc + (unsigned long)max;
-	for (;;)
+	unsigned long start = z->cyc;                // (the core's count wraps - at 4G on Windows, where an
+	for (;;)                                     // unsigned long is 32 bits: only differences are taken)
 	{
 		if (z->pc >= TRAP_LO && z->pc < TRAP_HI) { return 1; }
 		if (z->halted) { return 2; }
-		if (z->cyc >= end && (t == 0 || (z->iff1 && !z->iff_delay))) { return 0; }
+		if ((unsigned long)(z->cyc - start) >= (unsigned long)max && (t == 0 || (z->iff1 && !z->iff_delay))) { return 0; }
 		z80_step(z);
 	}
 }
@@ -1146,7 +1148,9 @@ static void serve(void)
 	int in[8];
 	for (i = 0; i < 8; i++) { in[i] = W(K, KB + i * 2); }
 	op = in[0]; t = in[1];
-	for (i = 8; i < 16; i++) { kw[i] = 0; }
+	if (verbose > 1 && op != 22 && op != 12 && op != 3 && op != 1) { fprintf(stderr, "[K] op %d %d %d %d %d\n", op, t, in[2], in[3], in[4]); }
+	for (i = 8; i < 16; i++) { kw[i] = W(K, KB + i * 2); }   // (the answers kept: an op sets only its own - as C0's Serve)
+	kw[8] = 0;
 	switch (op)
 	{
 		case 1: kw[8] = M(t)[in[2]]; break;
@@ -1157,7 +1161,7 @@ static void serve(void)
 		case 6: for (i = 0; i < in[3] && i < 224; i++) { K[KB + 32 + i] = M(t)[(in[2] + i) & 0xFFFF]; } break;
 		case 7: con_write(t, K + KB + 32, in[2] < 224 ? in[2] : 224); break;
 		case 8: break;                                   // CONX: the cursor's flash, a page shown
-		case 9: { const int *s = MODES[t >= 0 && t < 6 ? t : 0]; if (in[2] == 0) { kw[8] = s[0]; } else if (in[2] == 1) { kw[8] = s[1]; } if (in[2] == 2) { dirty = 1; } break; }
+		case 9: { const int *s = MODES[t >= 0 && t < 6 ? t : 0]; if (in[2] == 0) { kw[8] = s[0]; } else if (in[2] == 1) { kw[8] = s[1]; } if (in[2] == 2) { dirty = 1; shown_valid = 0; } break; }
 		case 10: break;                                  // INKS
 		case 11:                                         // SAY n col row: TOP's lines
 			for (i = 0; i < t && in[2] + i < 80 && in[3] < 25; i++) { top_cells[in[3] * 80 + in[2] + i] = K[KB + 32 + i]; }
@@ -1201,38 +1205,40 @@ static void serve(void)
 		case 20:                                         // MEMINFO: the tables, the top, pages, RAM K, free pages
 		{
 			int fr = 0; for (i = 1; i < NBANKS; i++) { if (!banks[i].used) { fr += 4; } }
-			kw[8] = 0x9738; kw[9] = 0xA5F0; kw[10] = 4 + NBANKS * 4 + 1; kw[11] = 64 + NBANKS * 64; kw[12] = fr;
+			kw[8] = 0x9738; kw[9] = 0xA5F0; kw[10] = 1 + NBANKS * 4; kw[11] = 64 + NBANKS * 64; kw[12] = fr;   // (pages as the CPC's: 1 main RAM, 4 a bank)
 			break;
 		}
-		case 21:                                         // MEMMAP p: 32 pages from page p
+		case 21:                                         // MEMMAP p: up to 32 pages from page p (the CPC's numbering: 1 main
+		{                                                // RAM, 2 on the banks' 4 each) - B a slot's or the kernel's,
+			int n = 0;                                   // U a store's, - free (MEM's legend)
 			for (i = 0; i < 32; i++)
 			{
-				int pg = t + i, c = '.';
-				if (pg < 4) { c = 'C'; }
-				else if ((pg - 4) / 4 < NBANKS) { int b = (pg - 4) / 4; c = b == 0 ? 'K' : (banks[b].used == 1 ? 'S' : (banks[b].used == 3 ? 'U' : '-')); }
-				K[KB + 32 + i] = (uint8_t)c;
+				int pg = t + i, b = (pg - 2) / 4;
+				if (pg < 2 || b >= NBANKS) { break; }
+				K[KB + 32 + n++] = (uint8_t)(b == 0 || banks[b].used == 1 ? 'B' : (banks[b].used == 3 ? 'U' : '-'));
 			}
-			kw[8] = 32;
+			kw[8] = n;
 			break;
+		}
 		case 22:                                         // HOT w: a system key, else (w) a key
 			if (nhots) { kw[8] = hots[0]; memmove(hots, hots + 1, --nhots * sizeof(int)); }
 			else
 			{
-				if (t) { kw[9] = nkeys ? keys[0] : 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } }
+				if (t) { kw[9] = nkeys ? keys[0] : 0; kw[10] = 0; kw[11] = 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } }
 				if (!worked && !nkeys) { idle++; } else { idle = 0; }
 				worked = 0;
 			}
 			break;
 		case 23: idle += 2; break;                       // FRAME: nothing runs
 		case 24: st[t] = in[2]; if (t >= 1 && t <= ns) { banks[t].used = in[2] ? 1 : 0; } break;
-		case 25: if (front != t) { front = t; dirty = 1; } break;
+		case 25: if (front != t) { front = t; dirty = 1; shown_valid = 0; } break;
 		case 26: kw[8] = ns; kw[9] = bd; kw[10] = HOST; kw[11] = 0; kw[12] = 70; kw[13] = 0; break;   // BOOT
 		case 27: quit_now = 1; break;
 		case 28: kw[8] = dv[t]; break;
 		case 29: dv[t] = in[2]; break;
 		case 30: launch(t); break;
 		case 31: if (!dv[t]) { dv[t] = bd; } hdr = dv[t]; kw[8] = pathOf(hdr) ? 0xFFFF : 0; break;
-		case 32: kw[8] = nkeys ? keys[0] : 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } break;
+		case 32: kw[9] = 0; kw[10] = 0; kw[8] = nkeys ? keys[0] : 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } break;
 		case 33: kw[8] = bd; break;
 		case 37:                                         // SLOT t g v: its DMA, a file open, the build's stamp (DUMP / REVIVE)
 		{
@@ -1310,14 +1316,28 @@ static void run_for(int msec)
 // the terminal: the screen in front drawn with ANSI codes; keys in raw mode - Control + T then a
 // digit brings that slot to the front (0: 10), T TOP, Q quits
 static void tty_restore(void) { tty_raw_off(); printf("\033[?25h\n"); fflush(stdout); }
+// the screen in front drawn on the terminal: only the rows that changed since the last time (a copy
+// of what is on it is kept), each one in place (no clearing: no flicker), the cursor hidden while
+// drawing and then put where the slot's is - all of it in one write
 static void tty_draw(void)
 {
-	char buf[8192]; int t = front, x = 0, y = 0;
+	static char out[64 * 200 + 64];
+	char buf[8192], *rows[64]; int t = front, n = 0, r, nrows = 0, x = 0, y = 0, cols = 80, h = 25;
 	con_text(t, buf, sizeof buf);
-	printf("\033[H\033[2J");
-	for (char *p = buf; *p; p++) { if (*p == '\n') { fputs("\r\n", stdout); } else { putchar(*p); } }
-	if (t) { x = M(t)[CURS]; y = M(t)[CURS + 1]; }
-	printf("\033[%d;%dH", y + 1, x + 1);
+	if (t) { cols = M(t)[CCOLS] ? M(t)[CCOLS] : 80; h = M(t)[CROWS] ? M(t)[CROWS] : 24; if (cols * h > 2048) { h = 2048 / cols; } x = M(t)[CURS]; y = M(t)[CURS + 1]; }
+	if (h > 64) { h = 64; } if (cols > 160) { cols = 160; }
+	for (char *p = buf, *start = buf; nrows < 64; p++) { if (*p == '\n' || *p == 0) { int end = (*p == 0); *p = 0; rows[nrows++] = start; start = p + 1; if (end) { break; } } }
+	if (!shown_valid || shown_rows != h || shown_cols != cols) { n += sprintf(out + n, "\033[2J"); memset(shown, 0, sizeof shown); shown_valid = 1; shown_rows = h; shown_cols = cols; }
+	n += sprintf(out + n, "\033[?25l");
+	for (r = 0; r < h; r++)
+	{
+		const char *row = r < nrows ? rows[r] : "";
+		if (strcmp(row, shown[r]) == 0) { continue; }
+		n += sprintf(out + n, "\033[%d;1H%.*s\033[K", r + 1, cols, row);
+		snprintf(shown[r], sizeof shown[r], "%s", row);
+	}
+	n += sprintf(out + n, "\033[%d;%dH\033[?25h", y + 1, x + 1);
+	fwrite(out, 1, (size_t)n, stdout);
 	fflush(stdout);
 	dirty = 0;
 }
@@ -1375,6 +1395,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--show") && i + 1 < argc) { show = argv[++i]; }
 		else if (!strcmp(argv[i], "--kernel") && i + 1 < argc) { kernel = argv[++i]; }
 		else if (!strcmp(argv[i], "-v")) { verbose = 1; }
+		else if (!strcmp(argv[i], "-vv")) { verbose = 2; }
 		else { usage(); return 1; }
 	}
 	if (ns < 1) { ns = 1; } if (ns > MAXS) { ns = MAXS; }
@@ -1407,6 +1428,7 @@ int main(int argc, char **argv)
 			while (*p && *p != ';' && n < 250) { cmd[n++] = *p++; }
 			cmd[n] = 0; if (*p == ';') { p++; }
 			if (cmd[0] == '^' && cmd[1]) { hot(toupper((unsigned char)cmd[1]) == 'T' ? 99 : atoi(cmd + 1)); }   // ^2: slot 2 to the front, ^T: TOP
+			else if (cmd[0] == '~' && cmd[1]) { run_for(atoi(cmd + 1)); continue; }                         // ~3000: 3 seconds more, typing nothing
 			else if (cmd[0] == '?' && cmd[1])                                                              // ?2: slot 2's last line, now
 			{
 				char buf[8192], *nl; con_text(atoi(cmd + 1), buf, sizeof buf); nl = strrchr(buf, '\n');

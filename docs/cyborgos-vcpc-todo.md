@@ -1,6 +1,22 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-29 Windows: the slots stopped after about 7 seconds (RATBOX found it: its 9 second wait for
+  RAT never ended) - superzazu's cycle count is an unsigned long, 32 bits on Windows: it wrapped at
+  4G cycles and a slice's end, worked out from it, then came before its start. Only differences of
+  the count are taken now. Under Wine: TICKER past 2 million in 40 s, RATBOX's message after 9 s.
+  Scripts: ~ms (time passing, nothing typed); -vv: the kernel's requests to C0 on stderr.
+- 2026-10-29 SPEED (cyborg-os's new command) here: 478 times a 4 MHz CPC alone (about 120 million DJNZ
+  a second), 69 with CRUNCH and TICKER beside it. vcpctest: speed (8 checks).
+- 2026-10-29 MEM: C0's answers to the kernel are kept between its ops, each op setting only its own (as
+  C0's Serve) - clearing them all lost MEMINFO's top and pages under the kernel's next op (MEM showed
+  #9738-#FFFF free and no map); HOT and INKEY now give all three of theirs each time. MEMMAP in MEM's
+  legend (B a slot's or the kernel's, U a store's, - free), 257 pages as the CPC's; MEM.CYB has a vCPC
+  section (host 4) in cyborg-os. vcpctest: mem (7 checks).
+- 2026-10-29 --tty without flicker: only the rows that changed are drawn, in place (no clearing), the
+  cursor hidden while drawing, in one write; a slot to the front or a MODE draws it all again. run.bat
+  (Windows: the node in this console, CyborgOS from ../cyborg-os or the folder given - not start.bat:
+  START is Windows' own command).
 - 2026-10-29 Windows: src/compat.h (Winsock, folders - a small dirent for cl -, the clock, the console:
   ANSI codes on, raw keys, the arrows as ESC [ A-D), src/build.bat (Visual C++, as Julian builds: cl /O2
   /MT, vcvars64 when cl isn't on the path). Built here with MinGW and run under Wine: DIR, TICKER,
@@ -18,6 +34,8 @@
   the one asked for.
 
 ## next
+- TOP's key: Control + ESC is Windows' Start menu (most emulators lose it too - WinAPE hooks it); a
+  second TOP key in CyborgOS, and the kernel's hint for host 4 (Control + T then 1-9 / T)
 - SEND / SLOTD: the network ops' listening (bind, listen, accept) as the M4 gets them
 - RAMDISC: its own Z80 driver run in a page, as C0 does
 - the link (the Pi protocol's frames: a console channel a slot, files in and out, port calls)

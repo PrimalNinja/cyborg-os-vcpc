@@ -21,6 +21,7 @@ CyborgOS itself is its own project (cyborg-os); this one needs its built set (it
 |---|---|
 | `src/vcpc.c` | the vCPC: the native C0, the discs, the consoles, the network, the services, the terminal |
 | `src/compat.h` | what differs between Windows and Unix: Winsock, folders, the clock, the console |
+| `run.bat` | Windows: the node in this console (CyborgOS from `..\cyborg-os`, or the CYBORGOS folder given) |
 | `src/build.bat` | the Windows build (Visual C++'s cl: Visual Studio 2022's vcvars64 when cl isn't on the path) |
 | `src/z80/` | superzazu's Z80 core (MIT, its LICENSE): unchanged but for two flag accessors |
 | `build/vcpc` | the built binary (Linux x86-64 here; `make` builds it for the machine it runs on) |
@@ -51,9 +52,9 @@ Windows 10 or later (its ANSI codes); paths may use \ or /.
 | `--data DIR` | this node's own files: device DATA (made if not there) |
 | `--slots n` | slots, 1-20 (10) |
 | `--tty` | the terminal is its screen and keyboard: Control + T, then 1-9 / 0 a slot to the front, T TOP, Q quit |
-| `--script "a;b"` | commands typed in turn, each given `--wait` ms (1500); `^2` slot 2 to the front, `^T` TOP, `?2` slot 2's last line printed then |
+| `--script "a;b"` | commands typed in turn, each given `--wait` ms (1500); `^2` slot 2 to the front, `^T` TOP, `?2` slot 2's last line printed then, `~3000` 3 seconds more typing nothing |
 | `--show 1,2` | with `--script`: the slots whose screens are printed at the end (`all`, `front`) |
-| `-v` | each slot's BDOS calls on stderr |
+| `-v` | each slot's BDOS calls on stderr; `-vv` the kernel's requests to C0 too |
 
 The drives: **A:** is `DATA:` - the node's own folder, with CyborgOS's set seen through it (read
 only: writing a set's file makes the node's own copy), so A: looks as the CPC's CYBORGOS folder
