@@ -1,6 +1,13 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-30 Fixed: pressing Q inside a slot (e.g. to stop SLOTD) could quit the whole vCPC. A Control+T
+  prefix left armed by the Windows terminal (which binds Control+T to its own tabs and delivers it
+  unreliably) would turn the next Q - meant for the slot - into Control+T Q = quit. The prefix now
+  expires after ~1s, and any non-hotkey key after Control+T is passed through as a normal key instead
+  of being swallowed. Control+T then a digit (two separate presses) still switches slots as before.
+  Note: SLOTD runs in the slot it is started in, so for a free command line alongside it, start it in
+  another slot (RUN 2 SLOTD) rather than typing slotd in your only prompt.
 - 2026-10-29 BDOS 131 ops 35 LISTEN (a socket listening on a port - SO_REUSEADDR, any address) and 36
   ACCEPT (a connection that came: a socket of its own, 254 none yet - a tick's sleep, as a port's not
   yet: an idle SLOTD costs next to nothing). Nothing listens unless a program asks: cyborg-os's SLOTD,

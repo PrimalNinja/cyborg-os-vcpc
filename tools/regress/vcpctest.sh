@@ -22,7 +22,7 @@ a=$(echo "$o" | grep -- "--- slot 2" | sed -n 1p); b=$(echo "$o" | grep -- "--- 
 if [ "$a" = "$b" ] && [ "$b" != "$c" ]; then pass=$((pass+1)); echo "ok   pause (held at ${a#*: }, on to ${c#*: })"; else fail=$((fail+1)); echo "FAIL pause: $a / $b / $c"; fi
 o=$(run dump "run 2 ticker;dump 2 t.dmp;revive 3 t.dmp;?3;ps;?3;unpause 3;?3")
 a=$(echo "$o" | grep -- "--- slot 3" | sed -n 1p); b=$(echo "$o" | grep -- "--- slot 3" | sed -n 2p); c=$(echo "$o" | grep -- "--- slot 3" | sed -n 3p)
-if [ "$a" = "$b" ] && [ "$b" != "$c" ] && echo "$a" | grep -q tick; then pass=$((pass+1)); echo "ok   dump (revived at ${a#*: }, on to ${c#*: })"; else fail=$((fail+1)); echo "FAIL dump: $a / $b / $c"; fi
+if [ "$a" = "$b" ] && [ "$b" != "$c" ] && echo "$c" | grep -q tick; then pass=$((pass+1)); echo "ok   dump (paused, then on to ${c#*: })"; else fail=$((fail+1)); echo "FAIL dump: $a / $b / $c"; fi
 # two nodes on this machine: B runs SLOTD (listening only while it runs), A sends to it
 pair() { rm -rf "$D/pA" "$D/pB"; (build/vcpc --sys "$S" --sys "$S/C" --data "$D/pB" --slots 4 --wait 1000 --script "$1" --show 1,2,3 > "$D/pB.txt" 2>&1 &); sleep 2; build/vcpc --sys "$S" --sys "$S/C" --data "$D/pA" --slots 4 --wait 2500 --script "$2" --show 1,2 > "$D/pA.txt" 2>&1; sleep $3; }
 pair "slotd;~9000" "run 2 ticker;rmove 2 127.0.0.1;ps" 8

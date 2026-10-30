@@ -1407,7 +1407,7 @@ static void tty_draw(void)
 }
 static void tty_main(void)
 {
-	int pre = 0; long last = 0;
+	int pre = 0; long last = 0; long preAt = 0;
 	tty_raw_on(); atexit(tty_restore);
 	while (!quit_now)
 	{
@@ -1415,8 +1415,18 @@ static void tty_main(void)
 		for (int i = 0; i < n; i++)
 		{
 			int c = b[i];
-			if (pre) { pre = 0; if (c >= '1' && c <= '9') { hot(c - '0'); } else if (c == '0') { hot(10); } else if (c == 't' || c == 'T') { hot(99); } else if (c == 'q' || c == 'Q') { quit_now = 1; } continue; }
-			if (c == 20) { pre = 1; continue; }                       // Control + T
+			if (pre && ms_now() - preAt > 1000) { pre = 0; }          // (a stale prefix - a terminal glitch - expires, so it can't swallow a later key)
+			if (pre)
+			{
+				pre = 0;
+				if (c >= '1' && c <= '9') { hot(c - '0'); }
+				else if (c == '0') { hot(10); }
+				else if (c == 't' || c == 'T') { hot(99); }
+				else if (c == 'q' || c == 'Q') { quit_now = 1; }
+				else { type_key(c); }
+				continue;
+			}
+			if (c == 20) { pre = 1; preAt = ms_now(); continue; }     // Control + T (the next key within ~1s acts on it)
 			if (c == 27 && i + 2 < n && b[i + 1] == '[') { int a = b[i + 2]; i += 2; type_key(a == 'A' ? 240 : a == 'B' ? 241 : a == 'D' ? 242 : a == 'C' ? 243 : 0); continue; }
 			if (c == 27) { type_key(0xFC); continue; }                // ESC (the firmware's #FC: the kernel makes it #1B)
 			if (c == 10) { c = 13; }
