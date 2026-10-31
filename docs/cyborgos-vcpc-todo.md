@@ -1,6 +1,16 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-10-31 LANG: the kernel's KOp 38 (LANG l, its first argument) sets the code page for 128-255:
+  1 Russian KOI8-R, 0 English / 2 Spanish Latin-1. The terminal (and --show) shows them as UTF-8;
+  typed UTF-8 (and --script's) turned into the code page (a character it hasn't got: dropped).
+  con_text no longer turns 128-255 into '.'. Open: the command line drops codes over 126 (the CPC
+  key codes clash - see CyborgOS's todo); Windows' console input isn't UTF-8 yet.
+- 2026-10-31 BDOS 131 op 40: the maths coprocessor for NTC's Float class (its shim's jump block
+  sends here when this answers): singles, half, MulDiv, whole arrays (16 / 32 bit, single or
+  fixed), matrix products (the fixed one: exact 64 bit sums, rounded once). The same answers as
+  the class's Z80 engine (checked: the same test program both ways, identical output); a tie's
+  last bit can differ (C rounds halves to even). The Pi's pi/svc/float.js is the same for a CPC.
 - 2026-10-30 Fixed: pressing Q inside a slot (e.g. to stop SLOTD) could quit the whole vCPC. A Control+T
   prefix left armed by the Windows terminal (which binds Control+T to its own tabs and delivers it
   unreliably) would turn the next Q - meant for the slot - into Control+T Q = quit. The prefix now

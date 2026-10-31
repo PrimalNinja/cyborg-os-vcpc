@@ -180,7 +180,7 @@ static void con_text(int t, char *buf, int max)
 	for (r = 0; r < H; r++)
 	{
 		for (e = W_; e > 0 && cells[r * W_ + e - 1] == ' '; e--) { }
-		for (c = 0; c < e && n < max - 2; c++) { buf[n++] = (char)(cells[r * W_ + c] >= 32 && cells[r * W_ + c] < 127 ? cells[r * W_ + c] : '.'); }
+		for (c = 0; c < e && n < max - 2; c++) { buf[n++] = (char)(cells[r * W_ + c] >= 32 && cells[r * W_ + c] != 127 ? cells[r * W_ + c] : '.'); }
 		if (n < max - 1) { buf[n++] = '\n'; }
 	}
 	while (n > 0 && buf[n - 1] == '\n') { n--; }
@@ -705,9 +705,153 @@ static int svc_info(int t, int p)
 	return 255;
 }
 
+// ---- BDOS 131 op 40: the maths coprocessor (NTC's Float class: its shim's jump block sends
+// here when this answers). The block in the slot: +1 the operation, +2 A, +6 B, +10 C, +14 the
+// answer, +18 overflow; arrays +19 element size, +20 element operation, +21 B a single, +22 A,
+// +24 B, +26 D (addresses), +28 the count, +30 R, +32 K, +34 C, +36 k, +40 the scale. The same
+// answers as the Z80 engine (IEEE single, no denormals, no NaNs - infinity instead), rounded to
+// nearest even where it rounds halves up (a tie's last bit can differ). The Pi's float service
+// (pi/svc/float.js) is the same, for a CPC.
+static int g_lang = 0;                  // the language (LANG: the kernel's op 38) - 0 English, 1 Russian, 2 Spanish
+static int fp_ov;
+static float fp_f(uint32_t u) { float f; memcpy(&f, &u, 4); return f; }
+static uint32_t fp_u(float f)
+{
+	uint32_t u; memcpy(&u, &f, 4);
+	if ((u & 0x7F800000u) == 0) { u &= 0x80000000u; return 0; }          // no denormals: 0
+	if ((u & 0x7F800000u) == 0x7F800000u) { fp_ov = 1; u = (u & 0x80000000u) | 0x7F800000u; }   // infinity (NaN too)
+	return u;
+}
+static uint32_t fp_in(uint32_t u) { return ((u & 0x7F800000u) == 0) ? 0 : u; }   // a denormal read as 0
+static int32_t fp_toint(uint32_t u)
+{
+	float f = fp_f(fp_in(u));
+	if (f >= 2147483648.0f) { fp_ov = 1; return 2147483647; }
+	if (f < -2147483648.0f || f != f) { fp_ov = 1; return (int32_t)0x80000000u; }
+	return (int32_t)f;
+}
+static int32_t fp_muldiv(int32_t a, int32_t b, int32_t c)
+{
+	int neg = ((a < 0) != (b < 0)) != (c < 0); uint64_t p, q, uc;
+	if (c == 0) { fp_ov = 1; return neg ? -2147483647 : 2147483647; }
+	p = (uint64_t)llabs((long long)a) * (uint64_t)llabs((long long)b); uc = (uint64_t)llabs((long long)c);
+	q = (p + uc / 2) / uc;
+	if (q > 2147483647u) { fp_ov = 1; return neg ? -2147483647 : 2147483647; }
+	return neg ? -(int32_t)q : (int32_t)q;
+}
+static int32_t fp_xadd(int32_t a, int32_t b, int sub)
+{
+	int64_t r = sub ? (int64_t)a - b : (int64_t)a + b;
+	if (r > 2147483647) { fp_ov = 1; return 2147483647; }
+	if (r < -2147483647) { fp_ov = 1; return -2147483647; }
+	return (int32_t)r;
+}
+static uint32_t fp_h2s(uint16_t h)
+{
+	uint32_t s = (uint32_t)(h & 0x8000) << 16, e = (h >> 10) & 31, m = h & 0x3FF;
+	if (e == 0) { return s; }
+	if (e == 31) { return s | 0x7F800000u; }
+	return s | ((e + 112) << 23) | (m << 13);
+}
+static uint16_t fp_s2h(uint32_t u)
+{
+	uint16_t s = (uint16_t)((u >> 16) & 0x8000); int e = (int)((u >> 23) & 255); uint32_t m11;
+	if (e < 113) { return s; }
+	if (e >= 143) { fp_ov = 1; return s | 0x7C00; }
+	m11 = ((u & 0x7FFFFF) | 0x800000) >> 13;                  // the top 11 bits, the hidden 1 at bit 10
+	if (u & 0x1000) { m11++; }                                // rounded (halves up, as the engine)
+	e -= 112;
+	if (m11 >= 0x800) { m11 = 0x400; e++; if (e >= 31) { fp_ov = 1; return s | 0x7C00; } }
+	return s | (uint16_t)(e << 10) | (uint16_t)(m11 & 0x3FF);
+}
+// one element operation: 1-4 single + - * /, 5-8 fixed + - * / (scale)
+static uint32_t fp_el(int eop, uint32_t a, uint32_t b, int32_t scale)
+{
+	switch (eop)
+	{
+		case 1: return fp_u(fp_f(fp_in(a)) + fp_f(fp_in(b)));
+		case 2: return fp_u(fp_f(fp_in(a)) - fp_f(fp_in(b)));
+		case 3: return fp_u(fp_f(fp_in(a)) * fp_f(fp_in(b)));
+		case 4: return fp_u(fp_f(fp_in(a)) / fp_f(fp_in(b)));
+		case 5: return (uint32_t)fp_xadd((int32_t)a, (int32_t)b, 0);
+		case 6: return (uint32_t)fp_xadd((int32_t)a, (int32_t)b, 1);
+		case 7: return (uint32_t)fp_muldiv((int32_t)a, (int32_t)b, scale);
+		case 8: return (uint32_t)fp_muldiv((int32_t)a, scale, (int32_t)b);
+	}
+	return 0;
+}
+static uint32_t fp_get(uint8_t *m, int ad, int es)
+{
+	if (es == 2) { return (uint32_t)(int32_t)(int16_t)W(m, ad); }
+	return (uint32_t)W(m, ad) | ((uint32_t)W(m, ad + 2) << 16);
+}
+static void fp_put(uint8_t *m, int ad, int es, uint32_t v)
+{
+	if (es == 2)
+	{
+		int32_t x = (int32_t)v;
+		if (x > 32767) { x = 32767; fp_ov = 1; } else if (x < -32767) { x = -32767; fp_ov = 1; }
+		SW(m, ad, (uint16_t)x);
+		return;
+	}
+	SW(m, ad, (uint16_t)(v & 0xFFFF)); SW(m, ad + 2, (uint16_t)(v >> 16));
+}
+static int fpu_call(int t, int p)
+{
+	uint8_t *m = M(t); int op = m[(p + 1) & 0xFFFF], es = m[(p + 19) & 0xFFFF], eop = m[(p + 20) & 0xFFFF], bk = m[(p + 21) & 0xFFFF];
+	uint32_t a = fp_get(m, p + 2, 4), b = fp_get(m, p + 6, 4), c = fp_get(m, p + 10, 4), r = 0, k = fp_get(m, p + 36, 4);
+	int32_t scale = (int32_t)fp_get(m, p + 40, 4);
+	int pa = W(m, p + 22), pb = W(m, p + 24), pd = W(m, p + 26), n = W(m, p + 28), R = W(m, p + 30), K = W(m, p + 32), C = W(m, p + 34), i, j, q;
+	fp_ov = 0;
+	switch (op)
+	{
+		case 0: break;                                             // there: yes
+		case 1: case 2: case 3: case 4: r = fp_el(op, a, b, 1); break;
+		case 5: r = fp_u((float)(int32_t)a); break;
+		case 6: r = (uint32_t)fp_toint(a); break;
+		case 7: r = a ^ 0x80000000u; break;
+		case 8: r = a & 0x7FFFFFFFu; break;
+		case 9: r = fp_h2s((uint16_t)a); break;
+		case 10: r = (uint32_t)(int32_t)(int16_t)fp_s2h(fp_in(a)); break;
+		case 11: r = (uint32_t)fp_muldiv((int32_t)a, (int32_t)b, (int32_t)c); break;
+		case 12:                                                   // element by element
+			for (i = 0; i < n; i++) { fp_put(m, pd + i * es, es, fp_el(eop, fp_get(m, pa + i * es, es), bk ? k : fp_get(m, pb + i * es, es), scale)); }
+			break;
+		case 13:                                                   // D (R x C) = A (R x K) B (K x C)
+			for (i = 0; i < R; i++)
+			{
+				for (j = 0; j < C; j++)
+				{
+					if (eop >= 5)
+					{
+						int64_t sum = 0; uint64_t us; int neg; uint64_t qq;
+						for (q = 0; q < K; q++) { sum += (int64_t)(int32_t)fp_get(m, pa + (i * K + q) * es, es) * (int64_t)(int32_t)fp_get(m, pb + (q * C + j) * es, es); }
+						neg = sum < 0; us = neg ? (uint64_t)(-sum) : (uint64_t)sum;
+						qq = (us + (uint64_t)scale / 2) / (uint64_t)scale;
+						if (qq > 2147483647u) { fp_ov = 1; qq = 2147483647u; }
+						r = neg ? (uint32_t)(-(int32_t)qq) : (uint32_t)qq;
+					}
+					else
+					{
+						uint32_t acc = 0;
+						for (q = 0; q < K; q++) { acc = fp_el(1, acc, fp_el(3, fp_get(m, pa + (i * K + q) * es, es), fp_get(m, pb + (q * C + j) * es, es), 1), 1); }
+						r = acc;
+					}
+					fp_put(m, pd + (i * C + j) * es, es, r);
+				}
+			}
+			break;
+		default: return 255;
+	}
+	SW(m, p + 14, (uint16_t)(r & 0xFFFF)); SW(m, p + 16, (uint16_t)(r >> 16));
+	m[(p + 18) & 0xFFFF] = (uint8_t)fp_ov;
+	return 0;
+}
+
 static int svc_call(int t, int p)
 {
 	uint8_t *m = M(t); int op = m[p], i;
+	if (op == 40) { return fpu_call(t, p); }
 	if (op == 10)
 	{
 		int k = m[(p + 1) & 0xFFFF], src = W(m, p + 2), ad = W(m, p + 4), to = W(m, p + 6), n = W(m, p + 8);
@@ -845,7 +989,7 @@ static Res line_in(int t, int de)
 		if (k == 8 || k == 127) { if (L) { m[(de + 1) & 0xFFFF] = (uint8_t)(L - 1); out(t, (const uint8_t *)"\b \b", 3); } continue; }
 		if (k == 21 || k == 24) { while (L) { L--; out(t, (const uint8_t *)"\b \b", 3); } m[(de + 1) & 0xFFFF] = 0; continue; }
 		if (k == 3 && !L) { m[VS + 1] = 0; return kern(0, 0, 0); }
-		if (k < 32 || k > 126 || L >= m[de]) { continue; }
+		if (k < 32 || k == 127 || (k > 126 && (g_lang == 0 || k == 0xFC)) || L >= m[de]) { continue; }   // (128-255 with a language: its letters; ESC #FC never)
 		m[(de + 2 + L) & 0xFFFF] = (uint8_t)k; m[(de + 1) & 0xFFFF] = (uint8_t)(L + 1);
 		{ uint8_t c = (uint8_t)k; out(t, &c, 1); }
 	}
@@ -1293,6 +1437,7 @@ static void serve(void)
 		case 31: if (!dv[t]) { dv[t] = bd; } hdr = dv[t]; kw[8] = pathOf(hdr) ? 0xFFFF : 0; break;
 		case 32: kw[9] = 0; kw[10] = 0; kw[8] = nkeys ? keys[0] : 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } break;
 		case 33: kw[8] = bd; break;
+		case 38: g_lang = in[1]; dirty = 1; shown_valid = 0; break;   // LANG l (its first argument): the code page for 128-255
 		case 37:                                         // SLOT t g v: its DMA, a file open, the build's stamp (DUMP / REVIVE)
 		{
 			int g = in[2], open_ = 0;
@@ -1352,8 +1497,9 @@ static int boot(const char *kernel)
 
 // ---- the outside: keys typed (to the slot in front, as a keyboard), system keys (a slot to the
 // front: 1-20; TOP: 99)
-static void type_key(int k) { if (nkeys < 256) { keys[nkeys++] = k & 255; } idle = 0; }
-static void type_str(const char *s) { for (; *s; s++) { type_key((unsigned char)*s); } }
+static void type_key(int k) { if (nkeys < 256) { keys[nkeys++] = k & 0x1FF; } idle = 0; }   // (256 + a byte: a character 128-255, the language's - apart from the CPC's key codes)
+static void type_utf8(int c);
+static void type_str(const char *s) { for (; *s; s++) { type_utf8((unsigned char)*s); } }
 static void hot(int n) { if (nhots < 32) { hots[nhots++] = n; } idle = 0; }
 
 // run_for(ms): the machine run for ms - with --cpu, kept to its share of a core: after each stretch
@@ -1383,9 +1529,50 @@ static void tty_restore(void) { tty_raw_off(); printf("\033[?25h\n"); fflush(std
 // the screen in front drawn on the terminal: only the rows that changed since the last time (a copy
 // of what is on it is kept), each one in place (no clearing: no flicker), the cursor hidden while
 // drawing and then put where the slot's is - all of it in one write
+// ---- the language (LANG, the kernel's op 38): characters 128-255 by its code page - 1 Russian
+// KOI8-R, 0 English and 2 Spanish Latin-1 - shown on the terminal as UTF-8, and typed UTF-8 turned
+// back into them (a character the code page hasn't got: dropped)
+static const unsigned short koi8r[128] = { 0x2500,0x2502,0x250C,0x2510,0x2514,0x2518,0x251C,0x2524,0x252C,0x2534,0x253C,0x2580,0x2584,0x2588,0x258C,0x2590,0x2591,0x2592,0x2593,0x2320,0x25A0,0x2219,0x221A,0x2248,0x2264,0x2265,0x00A0,0x2321,0x00B0,0x00B2,0x00B7,0x00F7,0x2550,0x2551,0x2552,0x0451,0x2553,0x2554,0x2555,0x2556,0x2557,0x2558,0x2559,0x255A,0x255B,0x255C,0x255D,0x255E,0x255F,0x2560,0x2561,0x0401,0x2562,0x2563,0x2564,0x2565,0x2566,0x2567,0x2568,0x2569,0x256A,0x256B,0x256C,0x00A9,0x044E,0x0430,0x0431,0x0446,0x0434,0x0435,0x0444,0x0433,0x0445,0x0438,0x0439,0x043A,0x043B,0x043C,0x043D,0x043E,0x043F,0x044F,0x0440,0x0441,0x0442,0x0443,0x0436,0x0432,0x044C,0x044B,0x0437,0x0448,0x044D,0x0449,0x0447,0x044A,0x042E,0x0410,0x0411,0x0426,0x0414,0x0415,0x0424,0x0413,0x0425,0x0418,0x0419,0x041A,0x041B,0x041C,0x041D,0x041E,0x041F,0x042F,0x0420,0x0421,0x0422,0x0423,0x0416,0x0412,0x042C,0x042B,0x0417,0x0428,0x042D,0x0429,0x0427,0x042A };
+static unsigned cp_uni(int b) { return b < 128 ? (unsigned)b : (g_lang == 1 ? koi8r[b - 128] : (unsigned)b); }
+static int cp_byte(unsigned u)                       // a code point into the code page: -1 none
+{
+	int i, r = -1;
+	if (u < 128) { r = (int)u; }
+	else if (g_lang == 1) { for (i = 0; i < 128 && r < 0; i++) { if (koi8r[i] == u) { r = 128 + i; } } }
+	else if (u < 256) { r = (int)u; }
+	return r;
+}
+static int utf8_put(char *d, unsigned u)
+{
+	int n = 0;
+	if (u < 0x80) { d[n++] = (char)u; }
+	else if (u < 0x800) { d[n++] = (char)(0xC0 | (u >> 6)); d[n++] = (char)(0x80 | (u & 63)); }
+	else { d[n++] = (char)(0xE0 | (u >> 12)); d[n++] = (char)(0x80 | ((u >> 6) & 63)); d[n++] = (char)(0x80 | (u & 63)); }
+	return n;
+}
+// a row (up to cols characters) as UTF-8 into d (at least cols * 3 + 1 bytes)
+static int cp_row(char *d, const char *s, int cols)
+{
+	int n = 0, i;
+	for (i = 0; i < cols && s[i]; i++) { n += utf8_put(d + n, cp_uni((unsigned char)s[i])); }
+	d[n] = 0;
+	return n;
+}
+// a typed byte: UTF-8 put together, the character in the code page typed
+static void type_utf8(int c)
+{
+	static unsigned u = 0; static int more = 0;
+	int b;
+	if (c < 0x80) { more = 0; type_key(c); }
+	else if ((c & 0xC0) == 0x80) { if (more > 0) { u = (u << 6) | (unsigned)(c & 63); more--; if (more == 0) { b = cp_byte(u); if (b >= 0) { type_key(b >= 128 ? 256 + b : b); } } } }
+	else if ((c & 0xE0) == 0xC0) { u = (unsigned)(c & 31); more = 1; }
+	else if ((c & 0xF0) == 0xE0) { u = (unsigned)(c & 15); more = 2; }
+	else { more = 0; }
+}
+
 static void tty_draw(void)
 {
-	static char out[64 * 200 + 64];
+	static char out[64 * 520 + 64]; char cv[160 * 3 + 1];
 	char buf[8192], *rows[64]; int t = front, n = 0, r, nrows = 0, x = 0, y = 0, cols = 80, h = 25;
 	con_text(t, buf, sizeof buf);
 	if (t) { cols = M(t)[CCOLS] ? M(t)[CCOLS] : 80; h = M(t)[CROWS] ? M(t)[CROWS] : 24; if (cols * h > 2048) { h = 2048 / cols; } x = M(t)[CURS]; y = M(t)[CURS + 1]; }
@@ -1397,7 +1584,8 @@ static void tty_draw(void)
 	{
 		const char *row = r < nrows ? rows[r] : "";
 		if (strcmp(row, shown[r]) == 0) { continue; }
-		n += sprintf(out + n, "\033[%d;1H%.*s\033[K", r + 1, cols, row);
+		cp_row(cv, row, cols);
+		n += sprintf(out + n, "\033[%d;1H%s\033[K", r + 1, cv);
 		snprintf(shown[r], sizeof shown[r], "%s", row);
 	}
 	n += sprintf(out + n, "\033[%d;%dH\033[?25h", y + 1, x + 1);
@@ -1431,7 +1619,7 @@ static void tty_main(void)
 			if (c == 27) { type_key(0xFC); continue; }                // ESC (the firmware's #FC: the kernel makes it #1B)
 			if (c == 10) { c = 13; }
 			if (c == 8) { c = 127; }
-			type_key(c);
+			type_utf8(c);
 		}
 		{
 			long long c0 = cpu_ms(); int more;
@@ -1529,7 +1717,7 @@ int main(int argc, char **argv)
 		{
 			int from, to;
 			if (!strcmp(tok, "all")) { from = 1; to = ns; } else if (!strcmp(tok, "front")) { from = to = front; } else { from = to = atoi(tok); }
-			for (int t = from; t <= to; t++) { con_text(t, buf, sizeof buf); printf("=== slot %d%s\n%s\n", t, t == front ? " (front)" : "", buf); }
+			for (int t = from; t <= to; t++) { static char ub[8192 * 3]; char *o = ub; con_text(t, buf, sizeof buf); for (char *q = buf; *q; q++) { o += utf8_put(o, cp_uni((unsigned char)*q)); } *o = 0; printf("=== slot %d%s\n%s\n", t, t == front ? " (front)" : "", ub); }
 		}
 	}
 	return 0;
