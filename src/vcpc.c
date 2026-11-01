@@ -712,6 +712,7 @@ static int svc_info(int t, int p)
 // answers as the Z80 engine (IEEE single, no denormals, no NaNs - infinity instead), rounded to
 // nearest even where it rounds halves up (a tie's last bit can differ). The Pi's float service
 // (pi/svc/float.js) is the same, for a CPC.
+static int no_autoexec = 0;             // --no-autoexec: the boot's AUTOEXEC skipped (a CPC: Shift held)
 static int g_lang = 0;                  // the language (LANG: the kernel's op 38) - 0 English, 1 Russian, 2 Spanish
 static int fp_ov;
 static float fp_f(uint32_t u) { float f; memcpy(&f, &u, 4); return f; }
@@ -1436,7 +1437,7 @@ static void serve(void)
 		case 30: launch(t); break;
 		case 31: if (!dv[t]) { dv[t] = bd; } hdr = dv[t]; kw[8] = pathOf(hdr) ? 0xFFFF : 0; break;
 		case 32: kw[9] = 0; kw[10] = 0; kw[8] = nkeys ? keys[0] : 0; if (nkeys) { memmove(keys, keys + 1, --nkeys * sizeof(int)); } break;
-		case 33: kw[8] = bd; break;
+		case 33: kw[8] = bd; kw[9] = no_autoexec; break;        // BOOTDONE (kw[9]: "Shift held" - --no-autoexec here)
 		case 38: g_lang = in[1]; dirty = 1; shown_valid = 0; break;   // LANG l (its first argument): the code page for 128-255
 		case 37:                                         // SLOT t g v: its DMA, a file open, the build's stamp (DUMP / REVIVE)
 		{
@@ -1661,6 +1662,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--script") && i + 1 < argc) { script = argv[++i]; }
 		else if (!strcmp(argv[i], "--wait") && i + 1 < argc) { wait = atoi(argv[++i]); }
 		else if (!strcmp(argv[i], "--show") && i + 1 < argc) { show = argv[++i]; }
+		else if (!strcmp(argv[i], "--no-autoexec")) { no_autoexec = 1; }
 		else if (!strcmp(argv[i], "--kernel") && i + 1 < argc) { kernel = argv[++i]; }
 		else if (!strcmp(argv[i], "--cpu") && i + 1 < argc) { cpu_pct = atoi(argv[++i]); if (cpu_pct < 5) { cpu_pct = 5; } if (cpu_pct > 95) { cpu_pct = 95; } }
 		else if (!strcmp(argv[i], "-v")) { verbose = 1; }

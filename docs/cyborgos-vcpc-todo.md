@@ -1,6 +1,18 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-11-01 Windows keys back to _getch (Control + T then a number stopped working for Julian with
+  the ReadConsoleInputW reading of 31 Oct; the Linux terminal path was checked through a pty:
+  Control + T 2 / 3 switch slots). The console's output code page stays UTF-8 (Russian and Spanish
+  shown); typed Cyrillic on Windows is open until it can be tried on a Windows console.
+- 2026-11-01 --no-autoexec: the boot's AUTOEXEC skipped (what holding Shift does on a CPC): BOOTDONE's
+  kw[9]. SlotFrame (CyborgOS) needs nothing here: a vCPC's frame is read and built by LANG... by
+  SlotFrame itself (its one frame, the call byte at #EF48).
+- 2026-10-31 Windows: LANG's Russian showed as box characters (the console in its OEM code page,
+  437, the vCPC writing UTF-8). The console is put in UTF-8 (CP 65001, input and output) for the
+  session, the old code pages back at the end; keys are read as Unicode console events
+  (ReadConsoleInputW) and handed on as UTF-8, so typed Cyrillic and Spanish reach the code page
+  conversion too (_getch gave the OEM code page's bytes). Arrows and Control + keys as before.
 - 2026-10-31 LANG: the kernel's KOp 38 (LANG l, its first argument) sets the code page for 128-255:
   1 Russian KOI8-R, 0 English / 2 Spanish Latin-1. The terminal (and --show) shows them as UTF-8;
   typed UTF-8 (and --script's) turned into the code page (a character it hasn't got: dropped).

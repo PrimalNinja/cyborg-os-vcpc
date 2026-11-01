@@ -76,30 +76,40 @@ static struct dirent *readdir(DIR *d)
 static int closedir(DIR *d) { FindClose(d->h); free(d); return 0; }
 #endif
 
-// the terminal: ANSI codes on (Windows 10 and later), keys one at a time with no echo; the arrow
-// keys turned into ESC [ A / B / C / D, as a Unix terminal sends them
+// the terminal: ANSI codes on (Windows 10 and later), the console's output code page UTF-8 for the
+// session (LANG's Russian and Spanish arrive as UTF-8; the old one back at the end), keys one at a
+// time with no echo (_getch); the arrow keys turned into ESC [ A / B / C / D, as a Unix terminal
+// sends them
 static DWORD tty_mode_out, tty_mode_in;
+static UINT tty_cp_out, tty_cp_in;
 static void tty_raw_on(void)
 {
 	HANDLE ho = GetStdHandle(STD_OUTPUT_HANDLE), hi = GetStdHandle(STD_INPUT_HANDLE);
 	GetConsoleMode(ho, &tty_mode_out); GetConsoleMode(hi, &tty_mode_in);
 	SetConsoleMode(ho, tty_mode_out | 0x0004 /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */);
 	SetConsoleMode(hi, tty_mode_in & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT));
+	tty_cp_out = GetConsoleOutputCP(); tty_cp_in = 0;
+	SetConsoleOutputCP(65001);                                  // CP_UTF8 out (LANG's Russian and Spanish shown); input left as it was
 }
-static void tty_raw_off(void) { SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), tty_mode_out); SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), tty_mode_in); }
+static void tty_raw_off(void)
+{
+	SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), tty_mode_out); SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), tty_mode_in);
+	if (tty_cp_out) { SetConsoleOutputCP(tty_cp_out); }
+	if (tty_cp_in) { SetConsoleCP(tty_cp_in); }
+}
 static int tty_read(unsigned char *b, int max)
 {
-	int n = 0;
-	while (n < max - 3 && _kbhit())
+	int n = 0;                                                   // (keys as before: _getch - the way that works; Unicode
+	while (n < max - 3 && _kbhit())                              // key events for typed Cyrillic wait for a Windows test)
 	{
 		int c = _getch();
-		if (c == 0 || c == 0xE0)
+		if (c == 0 || c == 224)                                  // an extended key: the arrows as ESC [ A..D
 		{
-			int k = _getch(), a = k == 72 ? 'A' : k == 80 ? 'B' : k == 77 ? 'C' : k == 75 ? 'D' : 0;
+			int e = _getch();
+			int a = e == 72 ? 'A' : e == 80 ? 'B' : e == 77 ? 'C' : e == 75 ? 'D' : 0;
 			if (a) { b[n++] = 27; b[n++] = '['; b[n++] = (unsigned char)a; }
-			continue;
 		}
-		b[n++] = (unsigned char)c;
+		else { b[n++] = (unsigned char)c; }
 	}
 	return n;
 }
