@@ -56,6 +56,9 @@
 #define SAVSP    0xFFFE                 // the registers' frame, while it isn't running
 #define SLICE    70000                  // a slice: 1/50 s of a 3.5 MHz Z80 (run as fast as the host goes)
 #define HOST     4                      // (0 the CPC, 1 the Next, 3 the MSX, 4 a vCPC)
+#define PROT_LO  0xF300                 // memory protection (--protect, on): a slot may not write #0000-#0007, #EF00-#EF7F
+                                        // (the traps, VS, the DPB) or #F300-#FFFF (the console's state and page, the store table,
+                                        // CURS, the registers' frame); #EF80-#F2FF is the first stack it is given (SP #F2FC)
 #define STAMP    0x7643                 // the build's stamp (C0's SLOT, op 37): a vCPC's bank layout - REVIVE takes a dump only from the same
 
 typedef struct {
@@ -77,7 +80,14 @@ static int verbose = 0;
 static int cpu_pct = 100;                // --cpu: the share of one core this node may take (5-95; 100: all of it)
 
 static uint8_t rb_cb(void *u, uint16_t a) { return ((uint8_t *)u)[a]; }
-static void wb_cb(void *u, uint16_t a, uint8_t v) { ((uint8_t *)u)[a] = v; }
+static int protect = 1;                 // --protect 0 turns it off
+static int fault_a = -1;                // the address a slot's write was refused at (-1 none): run() sees it
+static uint8_t *kernel_m;               // the kernel's bank: not checked (it is the hypervisor's own)
+static void wb_cb(void *u, uint16_t a, uint8_t v)
+{
+	if (protect && u != kernel_m && (a < 8 || (a >= 0xEF00 && a < 0xEF80) || a >= PROT_LO)) { if (fault_a < 0) { fault_a = a; } return; }
+	((uint8_t *)u)[a] = v;
+}
 static uint8_t in_cb(z80 *z, uint8_t p) { (void)z; (void)p; return 0xFF; }
 static void out_cb(z80 *z, uint8_t p, uint8_t v) { (void)z; (void)p; (void)v; }
 
@@ -444,6 +454,24 @@ static void name8(uint8_t *m, int a, char *out)
 }
 static int inUse(int t) { return t >= 1 && t <= ns && st[t] >= 2; }
 static int freeBank(void) { for (int b = ns + 1; b < NBANKS; b++) { if (!banks[b].used) { return b; } } return 0; }
+// the kernel's list pages (KOp 43 PAGE / 44-45 COPY): 16K quarters of free banks, a bank held by
+// pages (used 4) until its last quarter is given back. A page number is bank * 4 + quarter.
+static uint8_t page_used[NBANKS * 4];
+static int pageAlloc(void)
+{
+	int b, q;
+	for (b = ns + 1; b < NBANKS; b++) { if (banks[b].used == 4) { for (q = 0; q < 4; q++) { if (!page_used[b * 4 + q]) { page_used[b * 4 + q] = 1; memset(banks[b].m + q * 16384, 0, 16384); return b * 4 + q; } } } }
+	b = freeBank(); if (!b) { return 0; }
+	banks[b].used = 4; memset(page_used + b * 4, 0, 4); page_used[b * 4] = 1; memset(banks[b].m, 0, 16384); return b * 4;
+}
+static void pageFree(int p)
+{
+	int b = p / 4, q;
+	if (b <= ns || b >= NBANKS || banks[b].used != 4) { return; }
+	page_used[p] = 0;
+	for (q = 0; q < 4; q++) { if (page_used[b * 4 + q]) { return; } }
+	banks[b].used = 0;
+}
 
 static int storeSize(int t, int k)
 {
@@ -1253,6 +1281,7 @@ static Res bdos(int t, z80 *z)
 		case 130: return c0(t, 255, 2);
 		case 131:
 			k = m[de & 0xFFFF];
+			if (k >= 48 && k < 64) { return kern(131, de, 0); }      // the lists: the kernel's
 			if (k == 10 || k == 11 || k >= 13) { i = svc_call(t, de); return c0(t, i, ((i == 1 && k >= 30 && k <= 33) || (i == 254 && k == 36)) ? 3 : 0); }   // (a port's not yet, no connection yet: a tick's sleep)
 			if (k == 12) { return c0(t, storeSize(t, W(m, de + 2)), 0); }
 			return kern(131, de, 0);
@@ -1291,6 +1320,7 @@ static Res call(int t)
 // A slice ends only where an interrupt could be taken (interrupts on), as on the CPC, where the
 // slot is switched out by its interrupt: with them off, SP may be something else than a stack (an
 // NTC program's thread), and the registers' frame pushed there would land in its code
+static int fault_pc;
 static int run(int t, long max)
 {
 	z80 *z = &banks[t].z;
@@ -1299,8 +1329,11 @@ static int run(int t, long max)
 	{
 		if (z->pc >= TRAP_LO && z->pc < TRAP_HI) { return 1; }
 		if (z->halted) { return 2; }
+		if (protect && t > 0 && ((z->pc >= TRAP_HI && z->pc < 0xEF80) || z->pc >= PROT_LO)) { return 3; }    // (running in the hypervisor's area)
 		if ((unsigned long)(z->cyc - start) >= (unsigned long)max && (t == 0 || (z->iff1 && !z->iff_delay))) { return 0; }
+		fault_pc = z->pc;
 		z80_step(z);
+		if (fault_a >= 0) { return 3; }
 	}
 }
 
@@ -1323,6 +1356,14 @@ static void run_slot(int t, int a, int k, int n)
 		why = run(t, SLICE);
 		if (why == 0) { used++; if (used >= slices) { kw[8] = 0; break; } continue; }
 		if (why == 2) { banks[t].z.halted = 0; used++; kw[8] = 0; break; }    // (a HALT: the turn given up)
+		if (why == 3)                                                      // (memory protection: the program stopped, as if it ended)
+		{
+			char s[96]; int n;
+			if (fault_a >= 0) { n = snprintf(s, sizeof s, "\r\nMemory protection: wrote #%04X at #%04X - stopped\r\n", fault_a, fault_pc); }
+			else { n = snprintf(s, sizeof s, "\r\nMemory protection: ran into #%04X - stopped\r\n", banks[t].z.pc); }
+			out(t, (const uint8_t *)s, n); fault_a = -1;
+			kw[8] = 1; kw[9] = 0; kw[10] = 0; m[VS] = 1; break;
+		}
 		r = call(t);
 		if (r.kind == 2) { kw[8] = 1; kw[9] = r.fn; kw[10] = r.de; m[VS] = (uint8_t)(r.retry ? 2 : 1); break; }
 		if (r.kind == 0) { continue; }
@@ -1399,10 +1440,20 @@ static void serve(void)
 		case 16: kw[8] = svc_call(t, in[2]); break;
 		case 17: kw[8] = 255; break;                     // RAMDISC: (to come: its driver in a page)
 		case 18: kw[8] = storeSize(t, in[2]); break;
+		case 43: kw[8] = in[2] ? (pageFree(in[2]), 0) : pageAlloc(); break;   // PAGE p: 0 a page for the kernel's lists (r0), else p back
+		case 44: case 45:                                // COPY: n bytes (p1 = t + 32 n; 0 = 1024) page p2 at p3 <-> slot t at p4 (t 0: the kernel)
+		{
+			int n = (in[1] >> 5) & 0x3FF, p = in[2], o = in[3] & 0x3FFF, a = in[4] & 0xFFFF, b = p / 4, q = p & 3;
+			t = in[1] & 31;
+			if (n == 0) { n = 1024; }
+			if (b < 1 || b >= NBANKS || banks[b].used != 4 || o + n > 16384 || a + n > 65536) { break; }
+			if (op == 44) { memcpy(M(t) + a, banks[b].m + q * 16384 + o, (size_t)n); } else { memcpy(banks[b].m + q * 16384 + o, M(t) + a, (size_t)n); }
+			break;
+		}
 		case 19: install(t); break;
 		case 20:                                         // MEMINFO: the tables, the top, pages, RAM K, free pages
 		{
-			int fr = 0; for (i = 1; i < NBANKS; i++) { if (!banks[i].used) { fr += 4; } }
+			int fr = 0; for (i = 1; i < NBANKS; i++) { if (!banks[i].used) { fr += 4; } else if (banks[i].used == 4) { int q; for (q = 0; q < 4; q++) { if (!page_used[i * 4 + q]) { fr++; } } } }
 			kw[8] = 0x9738; kw[9] = 0xA5F0; kw[10] = 1 + NBANKS * 4; kw[11] = 64 + NBANKS * 64; kw[12] = fr;   // (pages as the CPC's: 1 main RAM, 4 a bank)
 			break;
 		}
@@ -1413,7 +1464,7 @@ static void serve(void)
 			{
 				int pg = t + i, b = (pg - 2) / 4;
 				if (pg < 2 || b >= NBANKS) { break; }
-				K[KB + 32 + n++] = (uint8_t)(b == 0 || banks[b].used == 1 ? 'B' : (banks[b].used == 3 ? 'U' : '-'));
+				K[KB + 32 + n++] = (uint8_t)(b == 0 || banks[b].used == 1 ? 'B' : (banks[b].used == 3 ? 'U' : (banks[b].used == 4 ? 'D' : '-')));
 			}
 			kw[8] = n;
 			break;
@@ -1644,7 +1695,9 @@ static void usage(void)
 		"  --tty         the terminal is its screen and keyboard (Control + T, then 1-9 / 0 / T / Q)\n"
 		"  --script S    commands typed in turn (; between), each given --wait ms (1500), then the screens\n"
 		"  --show LIST   with --script: the slots whose screens are printed (1,2 ...; 0 TOP; all: all)\n"
-		"  --cpu P       take at most P%% of one core (5-95), at below-normal priority (no --cpu: all of one core)\n");
+		"  --cpu P       take at most P%% of one core (5-95), at below-normal priority (no --cpu: all of one core)\n"
+		"  --protect 0   memory protection off (on: a slot that writes #0000-#0007, #EF00-#EF7F or #F300-#FFFF, or runs\n"
+		"                there, is stopped with a line on its console - a bug caught before the same program is run on a CPC)\n");
 }
 
 int main(int argc, char **argv)
@@ -1663,6 +1716,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--wait") && i + 1 < argc) { wait = atoi(argv[++i]); }
 		else if (!strcmp(argv[i], "--show") && i + 1 < argc) { show = argv[++i]; }
 		else if (!strcmp(argv[i], "--no-autoexec")) { no_autoexec = 1; }
+		else if (!strcmp(argv[i], "--protect") && i + 1 < argc) { protect = atoi(argv[++i]) != 0; }
 		else if (!strcmp(argv[i], "--kernel") && i + 1 < argc) { kernel = argv[++i]; }
 		else if (!strcmp(argv[i], "--cpu") && i + 1 < argc) { cpu_pct = atoi(argv[++i]); if (cpu_pct < 5) { cpu_pct = 5; } if (cpu_pct > 95) { cpu_pct = 95; } }
 		else if (!strcmp(argv[i], "-v")) { verbose = 1; }
@@ -1673,6 +1727,7 @@ int main(int argc, char **argv)
 	if (cpu_pct < 100) { lower_priority(); }           // (a share asked for: the PC's own work first, too)
 	if (!nsys) { usage(); return 1; }
 	for (i = 0; i < NBANKS; i++) { banks[i].m = calloc(1, 65536); }
+	kernel_m = banks[0].m;
 	for (i = 0; i < NH; i++) { hs[i].used = 0; }
 	for (i = 0; i < NT_N; i++) { socks[i].fd = -1; }
 	// the devices and the letters: A the node's own (DATA:), B and Z CyborgOS's set (SYS:)

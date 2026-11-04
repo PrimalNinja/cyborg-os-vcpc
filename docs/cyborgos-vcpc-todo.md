@@ -1,6 +1,12 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-11-01 Windows keys: _getwch instead of _getch (src/compat.h, tty_read) - _getch's wide twin,
+  the same control codes (Control + T is 20) and the same 0 / 224 before an extended key, but a
+  typed letter comes as its Unicode and is sent on as UTF-8, as a Unix terminal sends it: typed
+  Cyrillic (LANG RU) and accents (LANG ES) reach the code page conversion. A 224 with nothing
+  waiting after it is a typed a-grave (U+00E0), not an extended key. Built with MinGW (clean);
+  not yet run on a Windows console - Julian to try Control + T and typing after LANG RU.
 - 2026-11-01 Windows keys back to _getch (Control + T then a number stopped working for Julian with
   the ReadConsoleInputW reading of 31 Oct; the Linux terminal path was checked through a pty:
   Control + T 2 / 3 switch slots). The console's output code page stays UTF-8 (Russian and Spanish
@@ -93,3 +99,19 @@
 - RAMDISC: its own Z80 driver run in a page, as C0 does
 - the link (the Pi protocol's frames: a console channel a slot, files in and out, port calls)
 - a Dockerfile, the PHP stub that starts nodes
+
+- 2026-11-03 (the merge after the other session's sandbox died): no vCPC change in either of
+  Julian's sets (A and B the same source; B's zip without vcpc.exe). This copy kept: the _getwch
+  compat.h and vcpc.exe. tools/regress/vcpctest.sh 15/15 against the merged CyborgOS build (its
+  programs with the stack after the file, NTC's change). To come (the lost session's step 5):
+  vcpc.c cases 41 and 42 - pages as bank quarters - for the slot lists.
+- 2026-11-03 Memory protection (Julian: optional, on by default): wb_cb refuses a slot's write to
+  #0000-#0007, #EF00-#EF7F, #F300-#FFFF (the kernel's bank is not checked; #EF80-#F2FF is the first
+  stack a slot is given, SP #F2FC); run() stops a slot whose PC is in #EF49-#EF7F or #F300-#FFFF;
+  run_slot prints "Memory protection: wrote #xxxx at #pppp - stopped" (or "ran into #xxxx") on the
+  slot's console and reports the program ended (as BDOS 0). --protect 0 turns it off. PROTTEST.CYB
+  (CyborgOS src/bas/cyborgosc2/tasks, built to build/extra - no disc, no card) writes #F700;
+  vcpctest.sh checks it stopped, and with --protect 0 that it carried on: 17/17. The decision
+  (no protection in CyborgOS itself; the store table and op 10 reach other slots by design) is in
+  CyborgOS docs/cyborgos-memory-model.md 3.4.
+  files: src/vcpc.c, tools/regress/vcpctest.sh, README.md, docs/cyborgos-vcpc-todo.md

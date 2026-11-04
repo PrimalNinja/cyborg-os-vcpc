@@ -1,0 +1,46 @@
+CYBORG-OS-VCPC - build info
+===========================
+
+Build number: YYYYMMDD-N
+  YYYYMMDD is the UTC date the archive was built. N starts at 1 each day and is
+  incremented by 1 on EVERY build, whether or not that build was taken (applied).
+  The number counts builds, not releases.
+
+Maintaining this file
+  - On every build, add a NEW entry at the TOP of the history below (newest first).
+  - The entry heading is the build number: today's date, with N one higher than
+    the highest N already used for today (1 if today has no entry yet).
+  - Under the heading, list that build's changes as dot points.
+  - Do not edit or delete older entries - they are the history.
+
+Packaging rule (what goes in the archive) - READ THIS BEFORE ZIPPING
+  - Top folder is UPPERCASE: CYBORG-OS-VCPC.
+  - INCLUDE all source AND tooling: src/ (vcpc.c, compat.h, the z80 core), Makefile,
+    tools/, docs/, and build/ with the built binaries - build/vcpc (Linux, built
+    with make) and build/vcpc.exe (Windows). Rebuild build/vcpc for your target
+    with make.
+  - EXCLUDE only scratch: any __pycache__/, temp run dirs, and the VCS .git/.
+  - When in doubt, keep it. Dropping a tracked file is the error to avoid.
+
+History (newest first)
+======================
+
+20261105-2
+----------
+- Added the Packaging rule above (no source change from 20261105-1). build/vcpc
+  and build/vcpc.exe carried as before.
+
+20261105-1
+----------
+- No source change this build. The vCPC is a C Z80 emulator; the NTC paging fix
+  that prompted this round does not touch it, and the source already matches the
+  canonical base.
+- Added docs/build-info.txt (this file).
+- build/vcpc rebuilt from source with make (Linux x86-64, in the build container).
+  build/vcpc.exe (Windows x86-64) is carried from the canonical - rebuild for your
+  own target (e.g. the Pi) with `make`.
+- Verified: tools/regress/vcpctest.sh ALL PASS - 19/19 - run against the current
+  CyborgOS build (build/next/CYBORGOS): ps, dir, help, ipconfig, gui, mem, speed,
+  rats, pause, dump/revive, the networked pair tests (rmove, rcopy, rcopy word,
+  rcopy prog, slotd off), memory protection on/off, the slot lists past 64K, and
+  the GRU generative port (MIND <-> GRU).

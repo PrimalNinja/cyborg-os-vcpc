@@ -36,6 +36,12 @@ pair "slotd 2,3;~8000" "rcopy ticker.cyb 127.0.0.1 -o 3" 7
 check rcopy_prog "copied to 127.0.0.1 - running in slot 3" "$(cat "$D/pA.txt")"
 pair "slotd;~2000;q;~3000" "~4000;run 2 ticker;rmove 2 127.0.0.1" 4
 check slotd_off "no SLOTD at 127.0.0.1:6464" "$(cat "$D/pA.txt")"
+# memory protection (on by default): PROTTEST (build/extra, not on any disc) writes the console page at #F700
+X="$(dirname "$S")/../extra"
+o=$(build/vcpc --sys "$S" --sys "$S/C" --sys "$X" --data "$D/prot" --slots 4 --wait 1500 --script "run 2 prottest" --show 2); check protect "Memory protection: wrote #F700 at #0" "$o"
+o=$(build/vcpc --protect 0 --sys "$S" --sys "$S/C" --sys "$X" --data "$D/prot0" --slots 4 --wait 1500 --script "run 2 prottest" --show 2); check protect_off "still here (no protection)" "$o"
+o=$(build/vcpc --sys "$S" --sys "$S/C" --sys "$X" --data "$D/lst" --slots 4 --wait 8000 --script "run 2 lsttest 3000" --show 2); check lists "LST ok" "$o"   # the slot lists: a 3000-node list past 64K (COSList)
+o=$(build/vcpc --sys "$S" --sys "$S/C" --data "$D/gru" --slots 4 --wait 6000 --script "run 2 mind gen;gru gen 40 0;Dim i As Integer;q" --show 1); check gru "GRU: done" "$o"   # the generative port: MIND serves GEN, GRU feeds a prompt and generates (GRU <-> MIND)
 rm -rf "$D"
 [ $fail -eq 0 ] && echo "$pass passed - ALL PASS" || echo "$fail failed, $pass passed"
 [ $fail -eq 0 ]

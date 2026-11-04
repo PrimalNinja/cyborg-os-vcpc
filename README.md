@@ -55,6 +55,7 @@ Windows 10 or later (its ANSI codes); paths may use \ or /.
 | `--script "a;b"` | commands typed in turn, each given `--wait` ms (1500); `^2` slot 2 to the front, `^T` TOP, `?2` slot 2's last line printed then, `~3000` 3 seconds more typing nothing |
 | `--show 1,2` | with `--script`: the slots whose screens are printed at the end (`all`, `front`) |
 | `--cpu P` | take at most P% of one core (5-95), at below-normal priority: the PC's own work comes first. Without it: all of one core (an idle node sleeps either way) |
+| `--protect 0` | memory protection off. On (the default), a slot that writes #0000-#0007, #EF00-#EF7F or #F300-#FFFF (the hypervisor's part of its bank: the traps, the console state and page, the store table, the saved registers), or runs there, is stopped with `Memory protection: wrote #F700 at #018B - stopped` on its console and ends as a program does. A bug caught here before the same program is run on a CPC, where it corrupts the slot silently; not a security boundary (C0 and op 10 are not checked - the machine is its user's) |
 | `-v` | each slot's BDOS calls on stderr; `-vv` the kernel's requests to C0 too |
 
 The drives: **A:** is `DATA:` - the node's own folder, with CyborgOS's set seen through it (read

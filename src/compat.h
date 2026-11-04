@@ -78,8 +78,10 @@ static int closedir(DIR *d) { FindClose(d->h); free(d); return 0; }
 
 // the terminal: ANSI codes on (Windows 10 and later), the console's output code page UTF-8 for the
 // session (LANG's Russian and Spanish arrive as UTF-8; the old one back at the end), keys one at a
-// time with no echo (_getch); the arrow keys turned into ESC [ A / B / C / D, as a Unix terminal
-// sends them
+// time with no echo (_getwch: _getch's wide twin - the same control codes, Control + T 20, the same
+// 0 / 224 before an extended key - but a typed letter as its Unicode, sent on as UTF-8 as a Unix
+// terminal's are: typed Cyrillic and accents reach LANG's code page; _getch gave the OEM code page's
+// bytes, 2026-11-01); the arrow keys turned into ESC [ A / B / C / D, as a Unix terminal sends them
 static DWORD tty_mode_out, tty_mode_in;
 static UINT tty_cp_out, tty_cp_in;
 static void tty_raw_on(void)
@@ -99,18 +101,20 @@ static void tty_raw_off(void)
 }
 static int tty_read(unsigned char *b, int max)
 {
-	int n = 0;                                                   // (keys as before: _getch - the way that works; Unicode
-	while (n < max - 3 && _kbhit())                              // key events for typed Cyrillic wait for a Windows test)
+	int n = 0;
+	while (n < max - 3 && _kbhit())
 	{
-		int c = _getch();
-		if (c == 0 || c == 224)                                  // an extended key: the arrows as ESC [ A..D
-		{
-			int e = _getch();
+		unsigned c = (unsigned)_getwch();
+		if (c == 0 || (c == 224 && _kbhit()))                    // an extended key (its code waiting already: a
+		{                                                        // typed a-grave, U+00E0, comes alone): the arrows as ESC [ A..D
+			unsigned e = (unsigned)_getwch();
 			int a = e == 72 ? 'A' : e == 80 ? 'B' : e == 77 ? 'C' : e == 75 ? 'D' : 0;
 			if (a) { b[n++] = 27; b[n++] = '['; b[n++] = (unsigned char)a; }
 		}
-		else { b[n++] = (unsigned char)c; }
-	}
+		else if (c < 0x80) { b[n++] = (unsigned char)c; }       // ASCII and the control keys, as _getch gave them
+		else if (c < 0x800) { b[n++] = (unsigned char)(0xC0 | (c >> 6)); b[n++] = (unsigned char)(0x80 | (c & 63)); }
+		else if (c < 0xD800 || c > 0xDFFF) { b[n++] = (unsigned char)(0xE0 | (c >> 12)); b[n++] = (unsigned char)(0x80 | ((c >> 6) & 63)); b[n++] = (unsigned char)(0x80 | (c & 63)); }
+	}                                                            // (a surrogate - outside the BMP: dropped, no code page has it)
 	return n;
 }
 

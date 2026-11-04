@@ -1,4 +1,0 @@
-build/vcpc
-build/vcpc.exe
-*.o
-vcpc-data/
