@@ -25,6 +25,21 @@ Packaging rule (what goes in the archive) - READ THIS BEFORE ZIPPING
 History (newest first)
 ======================
 
+20261105-4
+----------
+- No source change from 20261105-3. Rebuilt build/vcpc with make (Linux x86-64) and ran the
+  vCPC regression against the fresh CyborgOS 20261105-2 build (build/next/CYBORGOS):
+  tools/regress/vcpctest.sh - 15 ok, 0 fail - ALL PASS (ps, dir, help, ipconfig, gui, mem,
+  speed, rats, pause, dump/revive, rmove, rcopy, rcopy word, rcopy prog, slotd off).
+  build/vcpc.exe (Windows x86-64) carried from the canonical - rebuild for your own target
+  with make.
+
+20261105-3
+----------
+- Removed the .gitignore. Its "build/vcpc" and "build/vcpc.exe" lines were excluding
+  the built binaries from every git-based release. build/ is a kept deliverable, so no
+  .gitignore is shipped now. No source change from 20261105-2.
+
 20261105-2
 ----------
 - Added the Packaging rule above (no source change from 20261105-1). build/vcpc
