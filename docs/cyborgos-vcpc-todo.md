@@ -1,6 +1,16 @@
 # cyborg-os-vcpc - todo
 
 ## done
+- 2026-11-07 BDOS 131 op 41: the net coprocessor for NTC's Net class (GEN.MDL, the k-trit GRU): src/genmdl.c
+  is IntModel / Net.cls in C (same Horner over the planes, arithmetic shift, Tiny tables, sat((a*b+32)>>6)),
+  one model a slot, the model bytes copied out of the slot at load. Sub 0 there?, 1 load (addr, n), 2
+  reset, 3 feed (the V logits written at an address, before noise), 4 free - vcpc.c's comment above
+  net_call. The same bytes as the Z80: test/net_t.bas (K=8) prints net_t.txt's string in 60 s on the
+  Z80 engine (UseEngine 1) and inside the boot wait on op 41 (UseEngine 2), Backend 1 / 2. Windows,
+  Linux and the Pi alike (genmdl.c in the Makefile and build.bat). The Pi's cosd has the same model
+  for a real CPC (cyborg-os/pi/svc/mind.js + pi/ntck). Still to do: C0 forwarding op 41 to the Pi's
+  MIND for a CPC with a Pi; and a vCPC on a Pi reaching cosd's other services (VDU, AUDIO, DISK) over
+  the link, so every Pi service is a vCPC service too.
 - 2026-11-01 Windows keys: _getwch instead of _getch (src/compat.h, tty_read) - _getch's wide twin,
   the same control codes (Control + T is 20) and the same 0 / 224 before an extended key, but a
   typed letter comes as its Unicode and is sent on as UTF-8, as a Unix terminal sends it: typed

@@ -21,6 +21,7 @@ CyborgOS itself is its own project (cyborg-os); this one needs its built set (it
 |---|---|
 | `src/vcpc.c` | the vCPC: the native C0, the discs, the consoles, the network, the services, the terminal |
 | `src/compat.h` | what differs between Windows and Unix: Winsock, folders, the clock, the console |
+| `src/genmdl.c`, `genmdl.h`, `tables.h` | the net coprocessor (BDOS 131 op 41): NTC's Net class's k-trit GRU (GEN.MDL) in C, byte-identical to the Z80 - the same file as cyborg-os/pi/ntck |
 | `run.bat` | Windows: the node in this console (CyborgOS from `..\cyborg-os`, or the CYBORGOS folder given) |
 | `src/build.bat` | the Windows build (Visual C++'s cl: Visual Studio 2022's vcvars64 when cl isn't on the path) |
 | `src/z80/` | superzazu's Z80 core (MIT, its LICENSE): unchanged but for two flag accessors |
@@ -30,11 +31,11 @@ CyborgOS itself is its own project (cyborg-os); this one needs its built set (it
 
 ## Building
 
-    make                   (or: cc -O2 -Isrc/z80 -o build/vcpc src/vcpc.c src/z80/z80.c)
+    make                   (or: cc -O2 -Isrc/z80 -Isrc -o build/vcpc src/vcpc.c src/genmdl.c src/z80/z80.c -lm)
 
 One C file and the Z80 core, nothing else: Linux, the Pi, macOS. On Windows, `src\build.bat`
 (Visual C++: `cl /O2 /MT /Iz80 vcpc.c z80\z80.c /link ws2_32.lib iphlpapi.lib`), or MinGW's gcc
-(`gcc -O2 -Isrc/z80 -o build/vcpc.exe src/vcpc.c src/z80/z80.c -lws2_32 -liphlpapi`). The console needs
+(`gcc -O2 -Isrc/z80 -Isrc -o build/vcpc.exe src/vcpc.c src/genmdl.c src/z80/z80.c -lws2_32 -liphlpapi`). The console needs
 Windows 10 or later (its ANSI codes); paths may use \ or /.
 
 ## Testing

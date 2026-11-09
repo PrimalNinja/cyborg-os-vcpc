@@ -16,6 +16,7 @@ o=$(run ipconfig "ipconfig"); check ipconfig "^IP address   [1-9]" "$o"   # (the
 o=$(build/vcpc --sys "$S" --sys "$S/C" --data "$D/gui" --slots 4 --wait 2500 --script "run 2 gui;run 3 guidemo" --show 3); check gui "GUIDEMO: window 0 on GUI" "$o"   # (GUI headless, GUIDEMO's window through its port)
 o=$(run mem "run 2 ticker;mem"); check mem "^BBBBBBBBBBBB---" "$o"   # (the kernel's bank and two slots': B, the rest free)
 o=$(build/vcpc --sys "$S" --sys "$S/C" --data "$D/speed" --slots 4 --wait 2500 --script "speed 1" --show 1); check speed "times a 4 MHz CPC" "$o"
+o=$(run ver "ver"); check ver "^CyborgOS 20[2-9][0-9]\(0[1-9]\|1[0-2]\)\(0[1-9]\|[12][0-9]\|3[01]\)\.\(00[1-9]\|0[1-9][0-9]\|[12][0-9][0-9]\) (vCPC)" "$o"   # (VER: the build number from page zero - YYYYMMDD.NNN and the host)
 o=$(run rats "run 2 model ratmodel;run 3 rat;rats 3"); check rats "^1: [a-z]" "$o"   # (RATS shows a decision: the rat's choice from MODEL, through the ports)
 o=$(run pause "run 2 ticker;pause 2;?2;ps;?2;unpause 2;?2")
 a=$(echo "$o" | grep -- "--- slot 2" | sed -n 1p); b=$(echo "$o" | grep -- "--- slot 2" | sed -n 2p); c=$(echo "$o" | grep -- "--- slot 2" | sed -n 3p)

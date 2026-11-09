@@ -2,7 +2,8 @@ CYBORG-OS-VCPC - build info
 ===========================
 
 Build number: YYYYMMDD-N
-  YYYYMMDD is the UTC date the archive was built. N starts at 1 each day and is
+  YYYYMMDD is the date the archive was built, Australia/Sydney local time (the
+  maintainer's day; entries before 20261109-1 used the UTC date). N starts at 1 each day and is
   incremented by 1 on EVERY build, whether or not that build was taken (applied).
   The number counts builds, not releases.
 
@@ -24,6 +25,37 @@ Packaging rule (what goes in the archive) - READ THIS BEFORE ZIPPING
 
 History (newest first)
 ======================
+
+20261109-1
+----------
+- Build numbers: the date is now the maintainer's local (Australia/Sydney) date, not UTC (this
+  entry is the first under that rule).
+- VER's number on a vCPC comes from src/cos_build.h (#define COS_BUILD "20261109-1"), written by
+  tools/stampver.js (node) from this file's top entry - make and src/build.bat run it, and the
+  header is kept in the tree so a compile by hand has the last one. 20261108-2 passed it from the
+  Makefile as a -D, which build.bat and a plain gcc / cl never saw: its Windows exe (the old
+  20261105-4 one, in fact) showed 20000000.000. Both binaries built here now: build/vcpc (Linux
+  x86-64, make) and build/vcpc.exe (Windows x86-64, make win: MinGW's x86_64-w64-mingw32-gcc).
+  VER: "CyborgOS 20261109.001 (vCPC)". vcpctest.sh 20 ok.
+
+20261108-2
+----------
+- VER on a vCPC: the version a slot reads from its page zero (#0051 a word, (year - 2000) * 512 +
+  month * 32 + day; #0053 the day's number - as the CPC's hypervisor puts its build-info number
+  there, CyborgOS 20261108-3) is this vCPC's own build number: the Makefile passes this file's
+  top entry as COS_BUILD, install() writes the three bytes (src/vcpc.c cos_version). So add the
+  entry here, then make - VER then shows "CyborgOS 20261108.002 (vCPC)". A build without the
+  define shows 20000000.000. tools/regress/vcpctest.sh checks VER's shape (20 tests).
+- build/vcpc rebuilt (Linux x86-64); build/vcpc.exe is 20261105-4's (no VER bytes in it:
+  rebuild for Windows with make CC=x86_64-w64-mingw32-gcc).
+
+20261108-1
+----------
+- No source change from 20261105-4. Rebuilt build/vcpc with make (Linux x86-64) and ran the
+  vCPC regression against the fresh CyborgOS 20261108-2 build (build/next/CYBORGOS, made with
+  NTC 20261108-2): tools/regress/vcpctest.sh - 19 ok, 0 fail - ALL PASS (ps, dir, help, ipconfig, gui, mem, speed, rats, pause,
+  dump/revive, rmove, rcopy, rcopy word, rcopy prog, slotd off, protect, protect off, lists, gru). build/vcpc.exe (Windows x86-64)
+  carried from 20261105-4 (no source change) - rebuild for your own target with make.
 
 20261105-4
 ----------

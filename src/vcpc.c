@@ -31,6 +31,7 @@
 #endif
 #include "compat.h"
 #include "z80.h"
+#include "genmdl.h"
 
 // ---- the machine
 #define MAXS     20                     // the kernel's most slots
@@ -56,6 +57,17 @@
 #define SAVSP    0xFFFE                 // the registers' frame, while it isn't running
 #define SLICE    70000                  // a slice: 1/50 s of a 3.5 MHz Z80 (run as fast as the host goes)
 #define HOST     4                      // (0 the CPC, 1 the Next, 3 the MSX, 4 a vCPC)
+// the build number VER shows (a slot reads it from its page zero: #0051 a word - (year - 2000) * 512 +
+// month * 32 + day -, #0053 the day's number), as the CPC's hypervisor puts it there from its
+// build-info. Here it is this vCPC's: docs/build-info.txt's top entry, written to cos_build.h by
+// tools/stampver.js (make and build.bat run it; the header is in the tree for a compile by hand)
+#include "cos_build.h"
+static int cos_ver_date = 0, cos_ver_num = 0;
+static void cos_version(void)
+{
+	int y = 0, mo = 0, d = 0, n = 0;
+	if (sscanf(COS_BUILD, "%4d%2d%2d-%d", &y, &mo, &d, &n) == 4) { cos_ver_date = (y - 2000) * 512 + mo * 32 + d; cos_ver_num = n > 255 ? 255 : n; }
+}
 #define PROT_LO  0xF300                 // memory protection (--protect, on): a slot may not write #0000-#0007, #EF00-#EF7F
                                         // (the traps, VS, the DPB) or #F300-#FFFF (the console's state and page, the store table,
                                         // CURS, the registers' frame); #EF80-#F2FF is the first stack it is given (SP #F2FC)
@@ -877,9 +889,50 @@ static int fpu_call(int t, int p)
 	return 0;
 }
 
+
+// ---- BDOS 131 op 41: the net coprocessor (NTC's Net class: GEN.MDL, the k-trit GRU). The block
+// in the slot: +1 the sub-operation, +2 an address, +4 a count / the class. Sub 0: there? (A 0).
+// Sub 1: load - +2 the model in the slot, +4 its length (copied out: the slot may reuse the
+// bytes); A 0 loaded, 1 not a GENM model. Sub 2: the state cleared. Sub 3: feed - +4 the class
+// in; the V logits (16 bits each, little end first, before any noise) written at +2; A 0. Sub 4:
+// freed. One model a slot. The same arithmetic as Net.cls (src/genmdl.c is IntModel in C): the
+// same bytes as the Z80, ~1000x sooner - on Windows, Linux and the Pi alike. The Pi's cosd has
+// the same model natively for a CPC (pi/svc/mind.js).
+static GenMdl *net_mdl[MAXS];
+static uint8_t *net_data[MAXS];
+static void net_free(int t) { free(net_mdl[t]); free(net_data[t]); net_mdl[t] = NULL; net_data[t] = NULL; }
+static int net_call(int t, int p)
+{
+	uint8_t *m = M(t); int sub = m[(p + 1) & 0xFFFF], a = W(m, p + 2), n = W(m, p + 4), i, r = 255;
+	if (sub == 0) { r = 0; }
+	else if (sub == 1)
+	{
+		net_free(t);
+		if (n < 12 || n > 65536) { r = 1; }
+		else
+		{
+			net_data[t] = (uint8_t *)malloc((size_t)n);
+			for (i = 0; i < n; i++) { net_data[t][i] = m[(a + i) & 0xFFFF]; }
+			net_mdl[t] = (GenMdl *)malloc(sizeof(GenMdl));
+			if (gb_genmdl_load(net_mdl[t], net_data[t], (size_t)n)) { r = 0; } else { net_free(t); r = 1; }
+		}
+	}
+	else if (net_mdl[t] == NULL) { r = 255; }
+	else if (sub == 2) { gb_genmdl_reset(net_mdl[t]); r = 0; }
+	else if (sub == 3)
+	{
+		gb_genmdl_feed(net_mdl[t], (n >= 0 && n < net_mdl[t]->intV) ? n : 0);
+		for (i = 0; i < net_mdl[t]->intV; i++) { SW(m, a + 2 * i, (uint16_t)(net_mdl[t]->arrLogits[i] & 0xFFFF)); }
+		r = 0;
+	}
+	else if (sub == 4) { net_free(t); r = 0; }
+	return r;
+}
+
 static int svc_call(int t, int p)
 {
 	uint8_t *m = M(t); int op = m[p], i;
+	if (op == 41) { return net_call(t, p); }
 	if (op == 40) { return fpu_call(t, p); }
 	if (op == 10)
 	{
@@ -961,6 +1014,8 @@ static void install(int t)
 	m[0] = 0xC3; m[1] = (BIOS + 3) & 255; m[2] = (BIOS + 3) >> 8;    // jp WBOOT ((#0001): the table's second entry)
 	m[5] = 0xC3; m[6] = BDOS & 255; m[7] = BDOS >> 8;                // jp the BDOS (#0006: the top of the TPA)
 	m[0x38] = 0xFB; m[0x39] = 0xC9;                                  // (no interrupts here: ei, ret)
+	if (!cos_ver_date) cos_version();
+	m[0x51] = cos_ver_date & 255; m[0x52] = cos_ver_date >> 8; m[0x53] = cos_ver_num;   // #0051: the version (VER)
 	memset(m + 0x5D, ' ', 11); memset(m + 0x6D, ' ', 11);
 	memset(m + TRAP_LO, 0x76, TRAP_HI - TRAP_LO);                    // (traps: never run)
 	memset(m + VS, 0, 8);
